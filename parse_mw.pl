@@ -69,7 +69,7 @@ while (defined(my $page = $revs->next)) {
     if ($current ne $page->id) {
         $current = $page->id;
         $c_page++;
-        last if $c_page > $PAGES;
+        last if $PAGES > 0 && $c_page > $PAGES;
         printf("progress processing page '%s'\n", $page->title); 
     }
 
@@ -82,7 +82,7 @@ while (defined(my $page = $revs->next)) {
         timestamp    => $page->timestamp,
         pid     => $page->id,
         ns      => $page->namespace || "Main",
-        title   => $page->title,
+        title   => ($page->title =~ /:/) ?  (split(/:/, $page->title, 2))[1] : $page->title,
     );
 
     $CACHE->{$revid} = \%rev;
@@ -105,15 +105,15 @@ while (my ($revid, $rev) = each %$CACHE ) {
 
     my $msg = "$rev->{comment}\n\nLevit.pl of page $rev->{pid} rev $revid\n";
     my $from = $commit_id > 1 ? sprintf("from :%d\n", $commit_id - 1) : '';
-    my $title = "$rev->{ns}/";
-    for my $i (0 .. min( length($rev->{title}), $DEPTH-1 ) ) {
+    my @parts = ($rev->{ns});
+    
+    for my $i (0 .. min( length($rev->{title}), $DEPTH) -1  ) {
         my $c = substr($rev->{title}, $i, 1);
-        if ($c !~ /[0-9A-Za-z_()]/) {
-            $c = sprintf(".%x", ord($c));
-        }
-        $title .= "$c/";
+        $c =~ s{([^0-9A-Za-z_])}{sprintf(".%x", ord($1))}eg;
+        push @parts, $c;
     }
-    $title .= $rev->{title};
+    $rev->{title} =~ s{([^0-9A-Za-z :\.()_-])}{sprintf(".%x", ord($1))}eg;
+    push @parts, $rev->{title};
     my $time = strftime('%s', POSIX::strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ'));
 
     print sprintf
@@ -123,9 +123,9 @@ author %s %s +0000
 committer %s %s %s
 data %d
 %s
-%sM 100644 :%d %s
+M 100644 :%d %s.mediawiki
 },
-    $commit_id, $rev->{user}, $time, $COMMITTER, time(), $TZ, bytes::length($msg), $msg, $from, $revid, $title;
+    $commit_id, $rev->{user}, $time, $COMMITTER, time(), $TZ, bytes::length($msg), $msg, $revid, join('/', @parts);
 
     $commit_id++;
 }
