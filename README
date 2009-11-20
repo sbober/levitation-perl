@@ -5,7 +5,6 @@ git fast-import.
 The reason for using Perl was the availability of some modules:
 
 - Parse::MediaWikiDump
-- DB_File
 
 The second one ensures good performance when maintaining some large
 data over the whole process.
@@ -14,7 +13,9 @@ The first 1000 pages of the german Wikipedia and all their revisions
 (about 390000) can be dumped in about 35 min on relatively moderate
 hardware.
 
-You need at least Perl 5.10 p
+You need at least Perl 5.10 and the TokyoCabinet libraries plus
+their Perl bindings.
+
 
 You need the following modules and their dependencies from CPAN:
 

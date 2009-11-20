@@ -1,8 +1,6 @@
 #!/usr/bin/perl
 # This is my perl conversion of scytale's levitation project
 # (http://github.com/scy/levitation).
-#
-# mainly done because of DB_File
 
 use feature ':5.10';
 
@@ -17,6 +15,8 @@ use POSIX qw(strftime);
 use POSIX::strptime;
 use List::Util qw(min);
 use Getopt::Long;
+use TokyoCabinet;
+use Storable qw(thaw nfreeze);
 
 binmode(STDOUT, ':utf8');
 binmode(STDERR, ':utf8');
@@ -36,21 +36,14 @@ my $result = GetOptions(
 );
 usage() if !$result || $HELP;
 
-
-
 my $TZ = strftime('%z', localtime());
 
-my $CACHE = Tools::TieCache::get({
-    dir     => '.',
-    multi   => 1,
-    func    =>
-        sub {
-            my($k1, $k2) = @_;
-            $k1 <=> $k2;
-        },
-    type    => 'btree',
-    unlink  => 0,
-});
+my $filename = "$DIR/levit.db";
+
+my $CACHE = TokyoCabinet::BDB->new() or die "db corrupt: new";
+$CACHE->setcmpfunc($CACHE->CMPDECIMAL);
+$CACHE->tune(128, 256, 32749, 4, 10, $CACHE->TLARGE|$CACHE->TDEFLATE);
+$CACHE->open($filename, $CACHE->OWRITER|$CACHE->OCREAT|$CACHE->OTRUNC) or die "db corrupt: open";
 
 
 my $stream = \*STDIN;
@@ -85,7 +78,7 @@ while (defined(my $page = $revs->next)) {
         title   => ($page->namespace && $page->title =~ /:/) ?  (split(/:/, $page->title, 2))[1] : $page->title,
     );
 
-    $CACHE->{$revid} = \%rev;
+    $CACHE->put("$revid", nfreeze(\%rev)) or die "db corrupt: put";
 
     my $text = ${$page->text};
     print sprintf qq{blob\nmark :%s\ndata %d\n%s\n}, $revid, bytes::length($text), $text;
@@ -93,16 +86,20 @@ while (defined(my $page = $revs->next)) {
 }
 
 close($stream);
+$CACHE->close() or die "db corrupt: close";
 
 my $commit_id = 1;
 
+my %CACHE;
+tie %CACHE, "TokyoCabinet::BDB", $filename, TokyoCabinet::BDB::OWRITER;
 say "progress processing $c_rev revisions";
 
-while (my ($revid, $rev) = each %$CACHE ) {
-    if ($commit_id % 5000 == 0) {
+while (my ($revid, $fr) = each %CACHE ) {
+    if ($commit_id % 100000 == 0) {
         say "progress revision $commit_id / $c_rev";
     }
 
+    my $rev = thaw($fr);
     my $msg = "$rev->{comment}\n\nLevit.pl of page $rev->{pid} rev $revid\n";
     my @parts = ($rev->{ns});
     
