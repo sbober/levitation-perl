@@ -2,13 +2,6 @@ This is a Perl port of scy's levitation. It reads MediaWiki dump files
 revision by revision and writes a data stream to stdout suitable for 
 git fast-import.
 
-The reason for using Perl was the availability of some modules:
-
-- Parse::MediaWikiDump
-
-The second one ensures good performance when maintaining some large
-data over the whole process.
-
 The first 1000 pages of the german Wikipedia and all their revisions
 (about 390000) can be dumped in about 35 min on relatively moderate
 hardware.
@@ -16,10 +9,11 @@ hardware.
 You need at least Perl 5.10 and the TokyoCabinet libraries plus
 their Perl bindings.
 
+You need libxml2 compiled with Reader and Pattern support
 
 You need the following modules and their dependencies from CPAN:
 
-- Parse::MediaWikiDump
+- XML::LibXML
 - Regexp::Common
 - POSIX::strptime
 
