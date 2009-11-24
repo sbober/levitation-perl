@@ -10,7 +10,10 @@ use warnings;
 use threads;
 use threads::shared;
 use Thread::Queue;
+
 use Carp;
+
+# don't overwrite CORE::length; thus only require
 require bytes;
 
 #use LibXML_WMD;
@@ -44,14 +47,17 @@ my $TZ = strftime('%z', localtime());
 
 my $filename = "$DIR/levit.db";
 
-
-
 my $stream = \*STDIN;
+
+# put the parsing in a thread and provide a queue to give parses back through
 my $queue = Thread::Queue->new();
 my $thr = threads->create(\&thr_parse, $stream, $queue, $PAGES);
 
+# use TokyoCabinet BTree database as persistent storage
 my $CACHE = TokyoCabinet::BDB->new() or die "db corrupt: new";
+# sort keys as decimals
 $CACHE->setcmpfunc($CACHE->CMPDECIMAL);
+# use a large bucket
 $CACHE->tune(128, 256, 3000000, 4, 10, $CACHE->TLARGE|$CACHE->TDEFLATE);
 $CACHE->open($filename, $CACHE->OWRITER|$CACHE->OCREAT|$CACHE->OTRUNC) or die "db corrupt: open";
 
@@ -60,13 +66,16 @@ $domain = "git.$domain";
 
 my $c_rev = 0;
 my $max_id = 0;
+
 while (defined(my $page = $queue->dequeue()) ) {
+    # record current revision and page ids to be able to provide meaningful progress messages
     if ($page->{new}) {
         printf("progress processing page '%s'  $c_rev / < $max_id\n", $page->{title});
     }
     my $revid = $page->{revision_id};
     $max_id = $revid if $revid > $max_id;
 
+    # extract all relevant data
     my %rev = (
         user    => user($page, $domain),
         comment => ($page->{comment} // "") . ( $page->{minor} ? " (minor)" : ""),
@@ -76,34 +85,40 @@ while (defined(my $page = $queue->dequeue()) ) {
         title   => $page->{title},
     );
 
+    # persist the serialized data with rev id as reference
     $CACHE->put("$revid", nfreeze(\%rev)) or die "db corrupt: put";
 
+    # and give the text to stdout, so git fast-import has something to do
     my $text = $page->{text};
     print sprintf qq{blob\nmark :%s\ndata %d\n%s\n}, $revid, bytes::length($text), $text;
     $c_rev++;
 }
+# we don't need the worker thread anymore. The input can go, too.
 $thr->join();
 close($stream);
 
-my $commit_id = 1;
-
+# go over the persisted metadata with a cursor
 my $cur = TokyoCabinet::BDBCUR->new($CACHE);
 $cur->first();
 say "progress processing $c_rev revisions";
 
+my $commit_id = 1;
 while (defined(my $revid = $cur->key())){
     if ($commit_id % 100000 == 0) {
         say "progress revision $commit_id / $c_rev";
     }
+
     my $rev = thaw($cur->val());
     my $msg = "$rev->{comment}\n\nLevit.pl of page $rev->{pid} rev $revid\n";
     my @parts = ($rev->{ns});
     
+    # we want sane subdirectories
     for my $i (0 .. min( length($rev->{title}), $DEPTH) -1  ) {
         my $c = substr($rev->{title}, $i, 1);
         $c =~ s{([^0-9A-Za-z_])}{sprintf(".%x", ord($1))}eg;
         push @parts, $c;
     }
+
     $rev->{title} =~ s{/}{\x1c}g;
     push @parts, $rev->{title};
     my $time = strftime('%s', POSIX::strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ'));
@@ -124,7 +139,7 @@ M 100644 :%d %s
 say "progress all done! let git fast-import finish ....";
 
 
-
+# get an author string that makes git happy and contains all relevant data
 sub user {
     my ($page, $domain) = @_;
 
@@ -140,25 +155,32 @@ sub user {
     return $email;
 }
 
+# parse the $stream and put the result to $queue
 sub thr_parse {
     my ($stream, $queue, $MPAGES) = @_;
     my $revs = LibXML_WMD->new(FD => $stream);
+
+    # give the site's domain to the boss thread
     my (undef, undef, $domain) = ($revs->{base} =~ $RE{URI}{HTTP}{-keep});
     $queue->enqueue($domain);
     
     my $c_page = 0;
     my $current = "";
     while (my $rev = $revs->next) {
+        # more than max pages?
         if ($current ne $rev->{id}) {
             $current = $rev->{id};
             $c_page++;
             $rev->{new} = 1;
             last if $MPAGES > 0 && $c_page > $MPAGES;
         }
+        # make threads::shared happy (initializes shared hashrefs);
         my $h = &share({});
         %$h = %$rev;
         $queue->enqueue($h);
     }
+
+    # give an undef to boss thread, to signal "we are done"
     $queue->enqueue(undef);
     return;
 }
@@ -197,6 +219,8 @@ Options:
     exit(1);
 }
 
+
+
 package LibXML_WMD;
 
 use strict;
@@ -231,6 +255,7 @@ sub new {
     my $pattern = XML::LibXML::Pattern->new(join(q{|}, '//x:revision','//x:page/x:id','//x:page/x:title', keys %DEFS), $NS);
     my $si_pattern = XML::LibXML::Pattern->new('//x:siteinfo', $NS);
     ##### Configuration end #####
+
 
     my $reader = XML::LibXML::Reader->new( @_ );
     my $st = $reader->nextPatternMatch($si_pattern);
