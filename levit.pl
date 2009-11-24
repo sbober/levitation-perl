@@ -20,7 +20,7 @@ require bytes;
 use Regexp::Common qw(URI net);
 use POSIX qw(strftime);
 use POSIX::strptime;
-use List::Util qw(min);
+use List::Util qw(min first);
 use Getopt::Long;
 use TokyoCabinet;
 use Storable qw(thaw nfreeze);
@@ -34,11 +34,13 @@ my $COMMITTER   = 'Levitation-pl <lev@servercare.eu>';
 my $DEPTH       = 3;
 my $DIR         = '.';
 my $HELP;
+my @NS          = ('Main');
 
 my $result = GetOptions(
     'max|m=i'       => \$PAGES,
     'depth|d=i'     => \$DEPTH,
     'tmpdir|t=s'    => \$DIR,
+    'ns|n=s'        => \@NS,
     'help|?'        => \$HELP,
 );
 usage() if !$result || $HELP;
@@ -51,7 +53,7 @@ my $stream = \*STDIN;
 
 # put the parsing in a thread and provide a queue to give parses back through
 my $queue = Thread::Queue->new();
-my $thr = threads->create(\&thr_parse, $stream, $queue, $PAGES);
+my $thr = threads->create(\&thr_parse, $stream, $queue, $PAGES, \@NS);
 
 # use TokyoCabinet BTree database as persistent storage
 my $CACHE = TokyoCabinet::BDB->new() or die "db corrupt: new";
@@ -82,6 +84,7 @@ while (defined(my $page = $queue->dequeue()) ) {
         timestamp    => $page->{timestamp},
         pid     => $page->{id},
         ns      => $page->{namespace},
+        nsid    => $page->{nsid},
         title   => $page->{title},
     );
 
@@ -110,8 +113,10 @@ while (defined(my $revid = $cur->key())){
 
     my $rev = thaw($cur->val());
     my $msg = "$rev->{comment}\n\nLevit.pl of page $rev->{pid} rev $revid\n";
-    my @parts = ($rev->{ns});
-    
+
+    my $branch = $rev->{nsid} || 'master';
+
+    my @parts;
     # we want sane subdirectories
     for my $i (0 .. min( length($rev->{title}), $DEPTH) -1  ) {
         my $c = substr($rev->{title}, $i, 1);
@@ -124,14 +129,14 @@ while (defined(my $revid = $cur->key())){
     my $time = strftime('%s', POSIX::strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ'));
 
     print sprintf
-q{commit refs/heads/master
+q{commit refs/heads/%s
 author %s %s +0000
 committer %s %s %s
 data %d
 %s
 M 100644 :%d %s
 },
-    $rev->{user}, $time, $COMMITTER, time(), $TZ, bytes::length($msg), $msg, $revid, join('/', @parts);
+    $branch, $rev->{user}, $time, $COMMITTER, time(), $TZ, bytes::length($msg), $msg, $revid, join('/', @parts);
 
     $commit_id++;
     $cur->next();
@@ -157,7 +162,7 @@ sub user {
 
 # parse the $stream and put the result to $queue
 sub thr_parse {
-    my ($stream, $queue, $MPAGES) = @_;
+    my ($stream, $queue, $MPAGES, $MNS) = @_;
     my $revs = LibXML_WMD->new(FD => $stream);
 
     # give the site's domain to the boss thread
@@ -167,6 +172,7 @@ sub thr_parse {
     my $c_page = 0;
     my $current = "";
     while (my $rev = $revs->next) {
+        next if !first { $rev->{namespace} eq $_ } @$MNS;
         # more than max pages?
         if ($current ne $rev->{id}) {
             $current = $rev->{id};
@@ -309,7 +315,7 @@ sub next {
                 ($ns, $title) = ('Main', $value);
             }
             
-            my %h = (title => $title, namespace => $ns);
+            my %h = (title => $title, namespace => $ns, nsid => $self->{_namespaces}{$ns} || 0);
             if (!%page) {
                 %page = %h;
             }
