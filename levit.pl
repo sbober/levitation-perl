@@ -92,7 +92,9 @@ $cur->first();
 say "progress processing $c_rev revisions";
 
 while (defined(my $revid = $cur->key())){
-
+    if ($commit_id % 100000 == 0) {
+        say "progress revision $commit_id / $c_rev";
+    }
     my $rev = thaw($cur->val());
     my $msg = "$rev->{comment}\n\nLevit.pl of page $rev->{pid} rev $revid\n";
     my @parts = ($rev->{ns});
@@ -119,6 +121,9 @@ M 100644 :%d %s
     $commit_id++;
     $cur->next();
 }
+say "progress all done! let git fast-import finish ....";
+
+
 
 sub user {
     my ($page, $domain) = @_;
