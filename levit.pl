@@ -74,7 +74,7 @@ my $max_id = 0;
 while (defined(my $page = $queue->dequeue()) ) {
     # record current revision and page ids to be able to provide meaningful progress messages
     if ($page->{new}) {
-        printf("progress processing page '%s'  $c_rev / < $max_id\n", $page->{title});
+        printf("progress processing page '%s:%s'  $c_rev / < $max_id\n", $page->{namespace}, $page->{title});
     }
     my $revid = $page->{revision_id};
     $max_id = $revid if $revid > $max_id;
@@ -118,7 +118,7 @@ while (defined(my $revid = $cur->key())){
 
     my $branch = $rev->{nsid} || 'master';
 
-    my @parts;
+    my @parts = $rev->{ns};
     # we want sane subdirectories
     for my $i (0 .. min( length($rev->{title}), $DEPTH) -1  ) {
         my $c = substr($rev->{title}, $i, 1);
