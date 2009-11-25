@@ -35,12 +35,14 @@ my $DEPTH       = 3;
 my $DIR         = '.';
 my $HELP;
 my @NS          = ('Main');
+my $ALL;
 
 my $result = GetOptions(
     'max|m=i'       => \$PAGES,
     'depth|d=i'     => \$DEPTH,
     'tmpdir|t=s'    => \$DIR,
     'ns|n=s'        => \@NS,
+    'all|a'         => \$ALL,
     'help|?'        => \$HELP,
 );
 usage() if !$result || $HELP;
@@ -53,7 +55,7 @@ my $stream = \*STDIN;
 
 # put the parsing in a thread and provide a queue to give parses back through
 my $queue = Thread::Queue->new();
-my $thr = threads->create(\&thr_parse, $stream, $queue, $PAGES, \@NS);
+my $thr = threads->create(\&thr_parse, $stream, $queue, $PAGES, \@NS, $ALL);
 
 # use TokyoCabinet BTree database as persistent storage
 my $CACHE = TokyoCabinet::BDB->new() or die "db corrupt: new";
@@ -162,7 +164,7 @@ sub user {
 
 # parse the $stream and put the result to $queue
 sub thr_parse {
-    my ($stream, $queue, $MPAGES, $MNS) = @_;
+    my ($stream, $queue, $MPAGES, $MNS, $MALL) = @_;
     my $revs = LibXML_WMD->new(FD => $stream);
 
     # give the site's domain to the boss thread
@@ -172,7 +174,7 @@ sub thr_parse {
     my $c_page = 0;
     my $current = "";
     while (my $rev = $revs->next) {
-        next if !first { $rev->{namespace} eq $_ } @$MNS;
+        next if !$MALL && !first { $rev->{namespace} eq $_ } @$MNS;
         # more than max pages?
         if ($current ne $rev->{id}) {
             $current = $rev->{id};
@@ -212,11 +214,19 @@ Options:
     -t temp_dir     The directory where temporary files should be written.
                     If this is 'in_mem', try to hold temp files in memory.
                     (default = '.')
+
     -depth
     -d depth        The depth of the directory tree under each namespace.
                     For depth = 3 the page 'Actinium' is written to
                     'A/c/t/Actinium.mediawiki'.
                     (default = 3)
+
+    -ns
+    -n namespace    The namespace(s) to import. The option can be given
+                    multiple times. Default is to just import "Main".
+
+    -all
+    -a              Import all namespaces. Default is "no".
 
     -help
     -h              Display this help text.
