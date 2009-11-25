@@ -34,7 +34,7 @@ my $COMMITTER   = 'Levitation-pl <lev@servercare.eu>';
 my $DEPTH       = 3;
 my $DIR         = '.';
 my $HELP;
-my @NS          = ('Main');
+my @NS;
 my $ALL;
 
 my $result = GetOptions(
@@ -46,6 +46,8 @@ my $result = GetOptions(
     'help|?'        => \$HELP,
 );
 usage() if !$result || $HELP;
+
+@NS = ('Main') if !@NS;
 
 my $TZ = strftime('%z', localtime());
 
