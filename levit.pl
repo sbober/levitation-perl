@@ -177,6 +177,10 @@ sub thr_parse {
         # make threads::shared happy (initializes shared hashrefs);
         my $h = &share({});
         %$h = %$rev;
+        while ($queue->pending() > 10000) {
+            threads->yield();
+        }
+
         $queue->enqueue($h);
     }
 
