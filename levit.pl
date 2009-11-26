@@ -7,9 +7,8 @@ use feature ':5.10';
 use strict;
 use warnings;
 
-use threads;
-use threads::shared;
-use Thread::Queue;
+use Coro;
+use Coro::Channel;
 
 use Carp;
 
@@ -50,8 +49,9 @@ my $filename = "$DIR/levit.db";
 my $stream = \*STDIN;
 
 # put the parsing in a thread and provide a queue to give parses back through
-my $queue = Thread::Queue->new();
-my $thr = threads->create(\&thr_parse, $stream, $queue, $PAGES);
+my $queue = Coro::Channel->new(10000);
+my $thr = Coro->new(\&thr_parse, $stream, $queue, $PAGES);
+$thr->ready;
 
 # use TokyoCabinet BTree database as persistent storage
 my $CACHE = TokyoCabinet::BDB->new() or die "db corrupt: new";
@@ -61,13 +61,13 @@ $CACHE->setcmpfunc($CACHE->CMPDECIMAL);
 $CACHE->tune(128, 256, 3000000, 4, 10, $CACHE->TLARGE|$CACHE->TDEFLATE);
 $CACHE->open($filename, $CACHE->OWRITER|$CACHE->OCREAT|$CACHE->OTRUNC) or die "db corrupt: open";
 
-my $domain = $queue->dequeue();
+my $domain = $queue->get;
 $domain = "git.$domain";
 
 my $c_rev = 0;
 my $max_id = 0;
 
-while (defined(my $page = $queue->dequeue()) ) {
+while (defined(my $page = $queue->get) ) {
     # record current revision and page ids to be able to provide meaningful progress messages
     if ($page->{new}) {
         printf("progress processing page '%s'  $c_rev / < $max_id\n", $page->{title});
@@ -162,7 +162,7 @@ sub thr_parse {
 
     # give the site's domain to the boss thread
     my (undef, undef, $domain) = ($revs->{base} =~ $RE{URI}{HTTP}{-keep});
-    $queue->enqueue($domain);
+    $queue->put($domain);
     
     my $c_page = 0;
     my $current = "";
@@ -174,18 +174,12 @@ sub thr_parse {
             $rev->{new} = 1;
             last if $MPAGES > 0 && $c_page > $MPAGES;
         }
-        # make threads::shared happy (initializes shared hashrefs);
-        my $h = &share({});
-        %$h = %$rev;
-        while ($queue->pending() > 10000) {
-            threads->yield();
-        }
 
-        $queue->enqueue($h);
+        $queue->put($rev);
     }
 
     # give an undef to boss thread, to signal "we are done"
-    $queue->enqueue(undef);
+    $queue->put(undef);
     return;
 }
 
