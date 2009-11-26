@@ -24,6 +24,7 @@ use List::Util qw(min);
 use Getopt::Long;
 use TokyoCabinet;
 use Storable qw(thaw nfreeze);
+use Digest::SHA1 qw(sha1);
 
 binmode(STDOUT, ':utf8');
 binmode(STDERR, ':utf8');
@@ -75,6 +76,15 @@ while (defined(my $page = $queue->dequeue()) ) {
     my $revid = $page->{revision_id};
     $max_id = $revid if $revid > $max_id;
 
+
+    # and give the text to stdout, so git fast-import has something to do
+    my $text = $page->{text};
+    my $len = bytes::length($text);
+
+    print sprintf qq{blob\ndata %d\n%s\n}, $len, $text;
+
+    my $sha1 = do { use bytes; sha1(sprintf(qq{blob %d\x00%s}, $len, $text)) };
+
     # extract all relevant data
     my %rev = (
         user    => user($page, $domain),
@@ -83,14 +93,12 @@ while (defined(my $page = $queue->dequeue()) ) {
         pid     => $page->{id},
         ns      => $page->{namespace},
         title   => $page->{title},
+        sha1    => $sha1
     );
 
     # persist the serialized data with rev id as reference
     $CACHE->put("$revid", nfreeze(\%rev)) or die "db corrupt: put";
 
-    # and give the text to stdout, so git fast-import has something to do
-    my $text = $page->{text};
-    print sprintf qq{blob\nmark :%s\ndata %d\n%s\n}, $revid, bytes::length($text), $text;
     $c_rev++;
 }
 # we don't need the worker thread anymore. The input can go, too.
@@ -129,9 +137,9 @@ author %s %s +0000
 committer %s %s %s
 data %d
 %s
-M 100644 :%d %s
+M 100644 %s %s
 },
-    $rev->{user}, $time, $COMMITTER, time(), $TZ, bytes::length($msg), $msg, $revid, join('/', @parts);
+    $rev->{user}, $time, $COMMITTER, time(), $TZ, bytes::length($msg), $msg, unpack('H*', $rev->{sha1}), join('/', @parts);
 
     $commit_id++;
     $cur->next();
