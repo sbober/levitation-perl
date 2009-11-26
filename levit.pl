@@ -99,8 +99,13 @@ while (defined(my $page = $queue->dequeue()) ) {
 $thr->join();
 close($stream);
 
+$CACHE->close() or croak "db can't be closed: $!";
+$CACHE = TokyoCabinet::BDB->new() or croak "db new: $!";
+$CACHE->open($filename, $CACHE->OREADER) or croak "db can't be reopened: $!";
+
+
 # go over the persisted metadata with a cursor
-my $cur = TokyoCabinet::BDBCUR->new($CACHE);
+my $cur = TokyoCabinet::BDBCUR->new($CACHE) or croak "can't get a cursor on db: $!";
 $cur->first();
 say "progress processing $c_rev revisions";
 
@@ -139,8 +144,9 @@ M 100644 :%d %s
     $commit_id++;
     $cur->next();
 }
-say "progress all done! let git fast-import finish ....";
 
+$CACHE->close() or croak "can't close db: $!";
+say "progress all done! let git fast-import finish ....";
 
 # get an author string that makes git happy and contains all relevant data
 sub user {
