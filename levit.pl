@@ -35,6 +35,8 @@ my $COMMITTER   = 'Levitation-pl <lev@servercare.eu>';
 my $DEPTH       = 3;
 my $DIR         = '.';
 my $HELP;
+my $MAX_GFI     = 1000000;
+my $GFI_CMD     = 'git fast-import --quiet';
 
 my $result = GetOptions(
     'max|m=i'       => \$PAGES,
@@ -67,21 +69,27 @@ $domain = "git.$domain";
 
 my $c_rev = 0;
 my $max_id = 0;
-
+my $gfi;
 while (defined(my $page = $queue->dequeue()) ) {
+    my $max_gfi_reached = $c_rev % $MAX_GFI == 0;
+    if (!defined $gfi || $max_gfi_reached) {
+        if (defined $gfi) {
+            close($gfi) or croak "error closing pipe to 'git fast-import': $!";
+        }
+        open($gfi, '|-:utf8', $GFI_CMD) or croak "error opening pipe to 'git fast-import': $!";
+    }
     # record current revision and page ids to be able to provide meaningful progress messages
     if ($page->{new}) {
-        printf("progress processing page '%s'  $c_rev / < $max_id\n", $page->{title});
+        printf {$gfi} "progress processing page '%s'  $c_rev / < $max_id\n", $page->{title};
     }
     my $revid = $page->{revision_id};
     $max_id = $revid if $revid > $max_id;
-
 
     # and give the text to stdout, so git fast-import has something to do
     my $text = $page->{text};
     my $len = bytes::length($text);
 
-    print sprintf qq{blob\ndata %d\n%s\n}, $len, $text;
+    print {$gfi} sprintf(qq{blob\ndata %d\n%s\n}, $len, $text);
 
     my $sha1 = do { use bytes; sha1(sprintf(qq{blob %d\x00%s}, $len, $text)) };
 
@@ -108,12 +116,27 @@ close($stream);
 # go over the persisted metadata with a cursor
 my $cur = TokyoCabinet::BDBCUR->new($CACHE);
 $cur->first();
-say "progress processing $c_rev revisions";
+
+say {$gfi} "progress processing $c_rev revisions";
+
+close($gfi) or croak "error closing pipe to 'git fast-import': $!";
+$gfi = undef;
 
 my $commit_id = 1;
 while (defined(my $revid = $cur->key())){
+    my $max_gfi_reached = $commit_id % $MAX_GFI == 0;
+    my $from = '';
+    if (!defined $gfi || $max_gfi_reached) {
+        if (defined $gfi) {
+            # TODO: needs work when working on other branches
+            # TODO^2: needs work when importing incrementally
+            $from = "from refs/heads/master^0\n";
+            close($gfi) or croak "error closing pipe to 'git fast-import': $!";
+        }
+        open($gfi, '|-:utf8', $GFI_CMD) or croak "error opening pipe to 'git fast-import': $!";
+    }
     if ($commit_id % 100000 == 0) {
-        say "progress revision $commit_id / $c_rev";
+        say {$gfi} "progress revision $commit_id / $c_rev";
     }
 
     my $rev = thaw($cur->val());
@@ -131,21 +154,22 @@ while (defined(my $revid = $cur->key())){
     push @parts, $rev->{title};
     my $time = strftime('%s', POSIX::strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ'));
 
-    print sprintf
+    print {$gfi} sprintf(
 q{commit refs/heads/master
 author %s %s +0000
 committer %s %s %s
 data %d
 %s
-M 100644 %s %s
+%sM 100644 %s %s
 },
-    $rev->{user}, $time, $COMMITTER, time(), $TZ, bytes::length($msg), $msg, unpack('H*', $rev->{sha1}), join('/', @parts);
+    $rev->{user}, $time, $COMMITTER, time(), $TZ, bytes::length($msg), $msg, $from, unpack('H*', $rev->{sha1}), join('/', @parts));
 
     $commit_id++;
     $cur->next();
 }
-say "progress all done! let git fast-import finish ....";
+say {$gfi} "progress all done! let git fast-import finish ....";
 
+close($gfi) or croak "error closing pipe to 'git fast-import': $!";
 
 # get an author string that makes git happy and contains all relevant data
 sub user {
