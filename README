@@ -15,7 +15,6 @@ You need the following modules and their dependencies from CPAN:
 
 - XML::LibXML
 - Regexp::Common
-- POSIX::strptime
 
 
 Have fun.
