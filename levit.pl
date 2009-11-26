@@ -33,17 +33,19 @@ my $PAGES       = 10;
 my $COMMITTER   = 'Levitation-pl <lev@servercare.eu>';
 my $DEPTH       = 3;
 my $DIR         = '.';
+my $CURRENT;
 my $HELP;
 
 my $result = GetOptions(
     'max|m=i'       => \$PAGES,
     'depth|d=i'     => \$DEPTH,
     'tmpdir|t=s'    => \$DIR,
+    'current|c'     => \$CURRENT,
     'help|?'        => \$HELP,
 );
 usage() if !$result || $HELP;
 
-my $TZ = strftime('%z', localtime());
+my $TZ = $CURRENT ? strftime('%z', localtime()) : '+0000';
 
 my $filename = "$DIR/levit.db";
 
@@ -121,7 +123,8 @@ while (defined(my $revid = $cur->key())){
 
     $rev->{title} =~ s{/}{\x1c}g;
     push @parts, $rev->{title};
-    my $time = strftime('%s', POSIX::strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ'));
+    my $wtime = strftime('%s', POSIX::strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ'));
+    my $ctime = $CURRENT ? time() : $wtime;
 
     print sprintf
 q{commit refs/heads/master
@@ -131,7 +134,7 @@ data %d
 %s
 M 100644 :%d %s
 },
-    $rev->{user}, $time, $COMMITTER, time(), $TZ, bytes::length($msg), $msg, $revid, join('/', @parts);
+    $rev->{user}, $wtime, $COMMITTER, $ctime, $TZ, bytes::length($msg), $msg, $revid, join('/', @parts);
 
     $commit_id++;
     $cur->next();
@@ -216,6 +219,12 @@ Options:
                     For depth = 3 the page 'Actinium' is written to
                     'A/c/t/Actinium.mediawiki'.
                     (default = 3)
+
+    -current
+    -c              Use the current time as commit time. Default is to use
+                    the time of the wiki revision. NOTICE: Using this option
+                    will create repositories that are guaranteed not to be
+                    equal to other imports of the same MediaWiki dump.
 
     -help
     -h              Display this help text.
