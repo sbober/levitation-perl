@@ -146,11 +146,12 @@ sub user {
     my $uid = $page->{userid};
     my $ip = $page->{ip};
     $ip = "255.255.255.255" if !defined $ip || $ip !~ $RE{net}{IPv4};
-    my $uname = $page->{username};
+    my $uname = $page->{username} || $page->{userid} || $ip || "Unknown";
 
     my $email = defined $uid    ? sprintf("uid-%s@%s", $uid, $domain)
               : defined $ip     ? sprintf("ip-%s@%s", $ip, $domain)
-              :                   "";
+              :                   sprintf("unknown@%s", $domain);
+
     $email = sprintf ("%s <%s>", $uname // $ip, $email);
     return $email;
 }
