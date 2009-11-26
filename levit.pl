@@ -115,8 +115,13 @@ while (defined(my $page = $queue->dequeue()) ) {
 $thr->join();
 close($stream);
 
+$CACHE->close() or croak "db can't be closed: $!";
+$CACHE = TokyoCabinet::BDB->new() or croak "db new: $!";
+$CACHE->open($filename, $CACHE->OREADER) or croak "db can't be reopened: $!";
+
+
 # go over the persisted metadata with a cursor
-my $cur = TokyoCabinet::BDBCUR->new($CACHE);
+my $cur = TokyoCabinet::BDBCUR->new($CACHE) or croak "can't get a cursor on db: $!";
 $cur->first();
 
 say {$gfi} "progress processing $c_rev revisions";
@@ -167,6 +172,7 @@ data %d
     $commit_id++;
     $cur->next();
 }
+$CACHE->close() or croak "can't close db: $!";
 say {$gfi} "progress all done! let git fast-import finish ....";
 
 close($gfi) or croak "error closing pipe to 'git fast-import': $!";
