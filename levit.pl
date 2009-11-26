@@ -19,11 +19,11 @@ require bytes;
 #use LibXML_WMD;
 use Regexp::Common qw(URI net);
 use POSIX qw(strftime);
-use POSIX::strptime;
 use List::Util qw(min);
 use Getopt::Long;
 use TokyoCabinet;
 use Storable qw(thaw nfreeze);
+use Time::Piece;
 
 binmode(STDOUT, ':utf8');
 binmode(STDERR, ':utf8');
@@ -45,6 +45,7 @@ my $result = GetOptions(
 );
 usage() if !$result || $HELP;
 
+# FIXME: would like to use Time::Piece's strftime(), but it returns the wrong timezone
 my $TZ = $CURRENT ? strftime('%z', localtime()) : '+0000';
 
 my $filename = "$DIR/levit.db";
@@ -128,7 +129,7 @@ while (defined(my $revid = $cur->key())){
 
     $rev->{title} =~ s{/}{\x1c}g;
     push @parts, $rev->{title};
-    my $wtime = strftime('%s', POSIX::strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ'));
+    my $wtime = Time::Piece->strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ')->strftime('%s');
     my $ctime = $CURRENT ? time() : $wtime;
 
     print sprintf
