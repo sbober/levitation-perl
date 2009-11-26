@@ -34,6 +34,7 @@ my $PAGES       = 10;
 my $COMMITTER   = 'Levitation-pl <lev@servercare.eu>';
 my $DEPTH       = 3;
 my $DIR         = '.';
+my $CURRENT;
 my $HELP;
 my $MAX_GFI     = 1000000;
 my $GFI_CMD     = 'git fast-import --quiet';
@@ -42,11 +43,12 @@ my $result = GetOptions(
     'max|m=i'       => \$PAGES,
     'depth|d=i'     => \$DEPTH,
     'tmpdir|t=s'    => \$DIR,
+    'current|c'     => \$CURRENT,
     'help|?'        => \$HELP,
 );
 usage() if !$result || $HELP;
 
-my $TZ = strftime('%z', localtime());
+my $TZ = $CURRENT ? strftime('%z', localtime()) : '+0000';
 
 my $filename = "$DIR/levit.db";
 
@@ -119,9 +121,6 @@ $cur->first();
 
 say {$gfi} "progress processing $c_rev revisions";
 
-close($gfi) or croak "error closing pipe to 'git fast-import': $!";
-$gfi = undef;
-
 my $commit_id = 1;
 while (defined(my $revid = $cur->key())){
     my $max_gfi_reached = $commit_id % $MAX_GFI == 0;
@@ -152,7 +151,8 @@ while (defined(my $revid = $cur->key())){
 
     $rev->{title} =~ s{/}{\x1c}g;
     push @parts, $rev->{title};
-    my $time = strftime('%s', POSIX::strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ'));
+    my $wtime = strftime('%s', POSIX::strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ'));
+    my $ctime = $CURRENT ? time() : $wtime;
 
     print {$gfi} sprintf(
 q{commit refs/heads/master
@@ -162,7 +162,7 @@ data %d
 %s
 %sM 100644 %s %s
 },
-    $rev->{user}, $time, $COMMITTER, time(), $TZ, bytes::length($msg), $msg, $from, unpack('H*', $rev->{sha1}), join('/', @parts));
+    $rev->{user}, $wtime, $COMMITTER, $ctime, $TZ, bytes::length($msg), $msg, $from, unpack('H*', $rev->{sha1}), join('/', @parts));
 
     $commit_id++;
     $cur->next();
@@ -178,11 +178,12 @@ sub user {
     my $uid = $page->{userid};
     my $ip = $page->{ip};
     $ip = "255.255.255.255" if !defined $ip || $ip !~ $RE{net}{IPv4};
-    my $uname = $page->{username};
+    my $uname = $page->{username} || $page->{userid} || $ip || "Unknown";
 
     my $email = defined $uid    ? sprintf("uid-%s@%s", $uid, $domain)
               : defined $ip     ? sprintf("ip-%s@%s", $ip, $domain)
-              :                   "";
+              :                   sprintf("unknown@%s", $domain);
+
     $email = sprintf ("%s <%s>", $uname // $ip, $email);
     return $email;
 }
@@ -247,6 +248,12 @@ Options:
                     For depth = 3 the page 'Actinium' is written to
                     'A/c/t/Actinium.mediawiki'.
                     (default = 3)
+
+    -current
+    -c              Use the current time as commit time. Default is to use
+                    the time of the wiki revision. NOTICE: Using this option
+                    will create repositories that are guaranteed not to be
+                    equal to other imports of the same MediaWiki dump.
 
     -help
     -h              Display this help text.
