@@ -23,6 +23,7 @@ use POSIX qw(strftime);
 use List::Util qw(min);
 use Getopt::Long;
 use Storable qw(thaw nfreeze);
+use Digest::SHA1 qw(sha1);
 use Time::Piece;
 
 binmode(STDOUT, ':utf8');
@@ -36,6 +37,8 @@ my $DIR         = '.';
 my $DB          = 'tc';
 my $CURRENT;
 my $HELP;
+my $MAX_GFI     = 1000000;
+my $GFI_CMD     = 'git fast-import --quiet';
 
 my $result = GetOptions(
     'max|m=i'       => \$PAGES,
@@ -81,14 +84,29 @@ $domain = "git.$domain";
 
 my $c_rev = 0;
 my $max_id = 0;
-
+my $gfi;
 while (defined(my $page = $queue->dequeue()) ) {
+    my $max_gfi_reached = $c_rev % $MAX_GFI == 0;
+    if (!defined $gfi || $max_gfi_reached) {
+        if (defined $gfi) {
+            close($gfi) or croak "error closing pipe to 'git fast-import': $!";
+        }
+        open($gfi, '|-:utf8', $GFI_CMD) or croak "error opening pipe to 'git fast-import': $!";
+    }
     # record current revision and page ids to be able to provide meaningful progress messages
     if ($page->{new}) {
-        printf("progress processing page '%s'  $c_rev / < $max_id\n", $page->{title});
+        printf {$gfi} "progress processing page '%s'  $c_rev / < $max_id\n", $page->{title};
     }
     my $revid = $page->{revision_id};
     $max_id = $revid if $revid > $max_id;
+
+    # and give the text to stdout, so git fast-import has something to do
+    my $text = $page->{text};
+    my $len = bytes::length($text);
+
+    print {$gfi} sprintf(qq{blob\ndata %d\n%s\n}, $len, $text);
+
+    my $sha1 = do { use bytes; sha1(sprintf(qq{blob %d\x00%s}, $len, $text)) };
 
     # extract all relevant data
     my %rev = (
@@ -98,14 +116,12 @@ while (defined(my $page = $queue->dequeue()) ) {
         pid     => $page->{id},
         ns      => $page->{namespace},
         title   => $page->{title},
+        sha1    => $sha1
     );
 
     # persist the serialized data with rev id as reference
     $CACHE->{"$revid"}= nfreeze(\%rev);
 
-    # and give the text to stdout, so git fast-import has something to do
-    my $text = $page->{text};
-    print sprintf qq{blob\nmark :%s\ndata %d\n%s\n}, $revid, bytes::length($text), $text;
     $c_rev++;
 }
 # we don't need the worker thread anymore. The input can go, too.
@@ -117,12 +133,23 @@ undef %$CACHE;
 $CACHE = get_db($filename, 'read', $DB);
 
 # go over the persisted metadata with a cursor
-say "progress processing $c_rev revisions";
+say {$gfi} "progress processing $c_rev revisions";
 
 my $commit_id = 1;
 while (my ($revid, $fr) = each %$CACHE){
+    my $max_gfi_reached = $commit_id % $MAX_GFI == 0;
+    my $from = '';
+    if (!defined $gfi || $max_gfi_reached) {
+        if (defined $gfi) {
+            # TODO: needs work when working on other branches
+            # TODO^2: needs work when importing incrementally
+            $from = "from refs/heads/master^0\n";
+            close($gfi) or croak "error closing pipe to 'git fast-import': $!";
+        }
+        open($gfi, '|-:utf8', $GFI_CMD) or croak "error opening pipe to 'git fast-import': $!";
+    }
     if ($commit_id % 100000 == 0) {
-        say "progress revision $commit_id / $c_rev";
+        say {$gfi} "progress revision $commit_id / $c_rev";
     }
 
     my $rev = thaw($fr);
@@ -141,21 +168,23 @@ while (my ($revid, $fr) = each %$CACHE){
     my $wtime = Time::Piece->strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ')->strftime('%s');
     my $ctime = $CURRENT ? time() : $wtime;
 
-    print sprintf
+    print {$gfi} sprintf(
 q{commit refs/heads/master
 author %s %s +0000
 committer %s %s %s
 data %d
 %s
-M 100644 :%d %s
+%sM 100644 %s %s
 },
-    $rev->{user}, $wtime, $COMMITTER, $ctime, $TZ, bytes::length($msg), $msg, $revid, join('/', @parts);
+    $rev->{user}, $wtime, $COMMITTER, $ctime, $TZ, bytes::length($msg), $msg, $from, unpack('H*', $rev->{sha1}), join('/', @parts));
 
     $commit_id++;
 }
 
 untie %$CACHE;
-say "progress all done! let git fast-import finish ....";
+say {$gfi} "progress all done! let git fast-import finish ....";
+
+close($gfi) or croak "error closing pipe to 'git fast-import': $!";
 
 # get an author string that makes git happy and contains all relevant data
 sub user {
