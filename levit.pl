@@ -20,7 +20,7 @@ no bytes;
 #use LibXML_WMD;
 use Regexp::Common qw(URI net);
 use POSIX qw(strftime);
-use List::Util qw(min);
+use List::Util qw(min first);
 use Getopt::Long;
 use Storable qw(thaw nfreeze);
 use Digest::SHA1 qw(sha1);
@@ -39,12 +39,14 @@ my $CURRENT;
 my $HELP;
 my $MAX_GFI     = 1000000;
 my $GFI_CMD     = 'git fast-import --quiet';
+my @NS;
 
 my $result = GetOptions(
     'max|m=i'       => \$PAGES,
     'depth|d=i'     => \$DEPTH,
     'tmpdir|t=s'    => \$DIR,
     'db=s'          => \$DB,
+    'ns|n=s'        => \@NS,
     'current|c'     => \$CURRENT,
     'help|?'        => \$HELP,
 );
@@ -75,7 +77,7 @@ my $stream = \*STDIN;
 
 # put the parsing in a thread and provide a queue to give parses back through
 my $queue = Thread::Queue->new();
-my $thr = threads->create(\&thr_parse, $stream, $queue, $PAGES);
+my $thr = threads->create(\&thr_parse, $stream, $queue, $PAGES, \@NS);
 
 my $CACHE = get_db($filename, 'new', $DB);
 
@@ -95,7 +97,7 @@ while (defined(my $page = $queue->dequeue()) ) {
     }
     # record current revision and page ids to be able to provide meaningful progress messages
     if ($page->{new}) {
-        printf {$gfi} "progress processing page '%s'  $c_rev / < $max_id\n", $page->{title};
+        printf {$gfi} "progress processing page '%s:%s'  $c_rev / < $max_id\n", $page->{namespace}, $page->{title};
     }
     my $revid = $page->{revision_id};
     $max_id = $revid if $revid > $max_id;
@@ -154,8 +156,8 @@ while (my ($revid, $fr) = each %$CACHE){
 
     my $rev = thaw($fr);
     my $msg = "$rev->{comment}\n\nLevit.pl of page $rev->{pid} rev $revid\n";
+
     my @parts = ($rev->{ns});
-    
     # we want sane subdirectories
     for my $i (0 .. min( length($rev->{title}), $DEPTH) -1  ) {
         my $c = substr($rev->{title}, $i, 1);
@@ -266,7 +268,7 @@ sub get_bdb_db {
 
 # parse the $stream and put the result to $queue
 sub thr_parse {
-    my ($stream, $queue, $MPAGES) = @_;
+    my ($stream, $queue, $MPAGES, $MNS) = @_;
     my $revs = LibXML_WMD->new(FD => $stream);
 
     # give the site's domain to the boss thread
@@ -276,6 +278,7 @@ sub thr_parse {
     my $c_page = 0;
     my $current = "";
     while (my $rev = $revs->next) {
+        next if @$MNS && !first { $rev->{namespace} eq $_ } @$MNS;
         # more than max pages?
         if ($current ne $rev->{id}) {
             $current = $rev->{id};
@@ -319,6 +322,7 @@ Options:
     -t temp_dir     The directory where temporary files should be written.
                     If this is 'in_mem', try to hold temp files in memory.
                     (default = '.')
+
     -depth
     -d depth        The depth of the directory tree under each namespace.
                     For depth = 3 the page 'Actinium' is written to
@@ -328,6 +332,10 @@ Options:
     -db (tc|bdb)    Define the database backend to use for persisting.
                     'tc' for Tokyo Cabinet is the default. 'bdb' is for
                     support via the standard Perl module DB_File;
+
+    -ns
+    -n namespace    The namespace(s) to import. The option can be given
+                    multiple times. Default is to import all namespaces.
 
     -current
     -c              Use the current time as commit time. Default is to use
@@ -432,7 +440,7 @@ sub next {
                 ($ns, $title) = ('Main', $value);
             }
             
-            my %h = (title => $title, namespace => $ns);
+            my %h = (title => $title, namespace => $ns, nsid => $self->{_namespaces}{$ns} || 0);
             if (!%page) {
                 %page = %h;
             }
