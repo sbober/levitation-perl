@@ -36,20 +36,16 @@ my $DIR         = '.';
 my $CURRENT;
 my $HELP;
 my @NS;
-my $ALL;
 
 my $result = GetOptions(
     'max|m=i'       => \$PAGES,
     'depth|d=i'     => \$DEPTH,
     'tmpdir|t=s'    => \$DIR,
     'ns|n=s'        => \@NS,
-    'all|a'         => \$ALL,
     'current|c'     => \$CURRENT,
     'help|?'        => \$HELP,
 );
 usage() if !$result || $HELP;
-
-@NS = ('Main') if !@NS;
 
 # FIXME: would like to use Time::Piece's strftime(), but it returns the wrong timezone
 my $TZ = $CURRENT ? strftime('%z', localtime()) : '+0000';
@@ -60,7 +56,7 @@ my $stream = \*STDIN;
 
 # put the parsing in a thread and provide a queue to give parses back through
 my $queue = Thread::Queue->new();
-my $thr = threads->create(\&thr_parse, $stream, $queue, $PAGES, \@NS, $ALL);
+my $thr = threads->create(\&thr_parse, $stream, $queue, $PAGES, \@NS);
 
 # use TokyoCabinet BTree database as persistent storage
 my $CACHE = TokyoCabinet::BDB->new() or die "db corrupt: new";
@@ -91,7 +87,6 @@ while (defined(my $page = $queue->dequeue()) ) {
         timestamp    => $page->{timestamp},
         pid     => $page->{id},
         ns      => $page->{namespace},
-        nsid    => $page->{nsid},
         title   => $page->{title},
     );
 
@@ -126,9 +121,7 @@ while (defined(my $revid = $cur->key())){
     my $rev = thaw($cur->val());
     my $msg = "$rev->{comment}\n\nLevit.pl of page $rev->{pid} rev $revid\n";
 
-    my $branch = $rev->{nsid} || 'master';
-
-    my @parts = $rev->{ns};
+    my @parts = ($rev->{ns});
     # we want sane subdirectories
     for my $i (0 .. min( length($rev->{title}), $DEPTH) -1  ) {
         my $c = substr($rev->{title}, $i, 1);
@@ -142,14 +135,14 @@ while (defined(my $revid = $cur->key())){
     my $ctime = $CURRENT ? time() : $wtime;
 
     print sprintf
-q{commit refs/heads/%s
+q{commit refs/heads/master
 author %s %s +0000
 committer %s %s %s
 data %d
 %s
 M 100644 :%d %s
 },
-    $branch, $rev->{user}, $wtime, $COMMITTER, $ctime, $TZ, bytes::length($msg), $msg, $revid, join('/', @parts);
+    $rev->{user}, $wtime, $COMMITTER, $ctime, $TZ, bytes::length($msg), $msg, $revid, join('/', @parts);
 
     $commit_id++;
     $cur->next();
@@ -177,7 +170,7 @@ sub user {
 
 # parse the $stream and put the result to $queue
 sub thr_parse {
-    my ($stream, $queue, $MPAGES, $MNS, $MALL) = @_;
+    my ($stream, $queue, $MPAGES, $MNS) = @_;
     my $revs = LibXML_WMD->new(FD => $stream);
 
     # give the site's domain to the boss thread
@@ -187,7 +180,7 @@ sub thr_parse {
     my $c_page = 0;
     my $current = "";
     while (my $rev = $revs->next) {
-        next if !$MALL && !first { $rev->{namespace} eq $_ } @$MNS;
+        next if @$MNS && !first { $rev->{namespace} eq $_ } @$MNS;
         # more than max pages?
         if ($current ne $rev->{id}) {
             $current = $rev->{id};
@@ -240,10 +233,7 @@ Options:
 
     -ns
     -n namespace    The namespace(s) to import. The option can be given
-                    multiple times. Default is to just import "Main".
-
-    -all
-    -a              Import all namespaces. Default is "no".
+                    multiple times. Default is to import all namespaces.
 
     -current
     -c              Use the current time as commit time. Default is to use
