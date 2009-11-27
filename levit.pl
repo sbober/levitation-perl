@@ -13,15 +13,15 @@ use Thread::Queue;
 
 use Carp;
 
-# don't overwrite CORE::length; thus only require
-require bytes;
+# don't overwrite CORE::length; thus only use -> no
+use bytes;
+no bytes;
 
 #use LibXML_WMD;
 use Regexp::Common qw(URI net);
 use POSIX qw(strftime);
 use List::Util qw(min);
 use Getopt::Long;
-use TokyoCabinet;
 use Storable qw(thaw nfreeze);
 use Time::Piece;
 
@@ -33,6 +33,7 @@ my $PAGES       = 10;
 my $COMMITTER   = 'Levitation-pl <lev@servercare.eu>';
 my $DEPTH       = 3;
 my $DIR         = '.';
+my $DB          = 'tc';
 my $CURRENT;
 my $HELP;
 
@@ -40,10 +41,27 @@ my $result = GetOptions(
     'max|m=i'       => \$PAGES,
     'depth|d=i'     => \$DEPTH,
     'tmpdir|t=s'    => \$DIR,
+    'db=s'          => \$DB,
     'current|c'     => \$CURRENT,
     'help|?'        => \$HELP,
 );
 usage() if !$result || $HELP;
+
+if ($DB eq 'tc') {
+    eval { require TokyoCabinet; };
+    if ($@) {
+        print STDERR "cannot use TokyoCabinet, falling back to DB_File\nReason: $@\n";
+        $DB = 'bdb';
+    }
+}
+if ($DB eq 'bdb') {
+    eval { require DB_File; };
+    if ($@) {
+        print STDERR "cannot use DB_File, terminating.\nReason: $@\n";
+        $DB = undef;
+    }
+}
+croak "couldn't load a persistent DB backend. Terminating." if not defined $DB;
 
 # FIXME: would like to use Time::Piece's strftime(), but it returns the wrong timezone
 my $TZ = $CURRENT ? strftime('%z', localtime()) : '+0000';
@@ -56,13 +74,7 @@ my $stream = \*STDIN;
 my $queue = Thread::Queue->new();
 my $thr = threads->create(\&thr_parse, $stream, $queue, $PAGES);
 
-# use TokyoCabinet BTree database as persistent storage
-my $CACHE = TokyoCabinet::BDB->new() or die "db corrupt: new";
-# sort keys as decimals
-$CACHE->setcmpfunc($CACHE->CMPDECIMAL);
-# use a large bucket
-$CACHE->tune(128, 256, 3000000, 4, 10, $CACHE->TLARGE|$CACHE->TDEFLATE);
-$CACHE->open($filename, $CACHE->OWRITER|$CACHE->OCREAT|$CACHE->OTRUNC) or die "db corrupt: open";
+my $CACHE = get_db($filename, 'new', $DB);
 
 my $domain = $queue->dequeue();
 $domain = "git.$domain";
@@ -89,7 +101,7 @@ while (defined(my $page = $queue->dequeue()) ) {
     );
 
     # persist the serialized data with rev id as reference
-    $CACHE->put("$revid", nfreeze(\%rev)) or die "db corrupt: put";
+    $CACHE->{"$revid"}= nfreeze(\%rev);
 
     # and give the text to stdout, so git fast-import has something to do
     my $text = $page->{text};
@@ -100,23 +112,20 @@ while (defined(my $page = $queue->dequeue()) ) {
 $thr->join();
 close($stream);
 
-$CACHE->close() or croak "db can't be closed: $!";
-$CACHE = TokyoCabinet::BDB->new() or croak "db new: $!";
-$CACHE->open($filename, $CACHE->OREADER) or croak "db can't be reopened: $!";
-
+untie %$CACHE;
+undef %$CACHE;
+$CACHE = get_db($filename, 'read', $DB);
 
 # go over the persisted metadata with a cursor
-my $cur = TokyoCabinet::BDBCUR->new($CACHE) or croak "can't get a cursor on db: $!";
-$cur->first();
 say "progress processing $c_rev revisions";
 
 my $commit_id = 1;
-while (defined(my $revid = $cur->key())){
+while (my ($revid, $fr) = each %$CACHE){
     if ($commit_id % 100000 == 0) {
         say "progress revision $commit_id / $c_rev";
     }
 
-    my $rev = thaw($cur->val());
+    my $rev = thaw($fr);
     my $msg = "$rev->{comment}\n\nLevit.pl of page $rev->{pid} rev $revid\n";
     my @parts = ($rev->{ns});
     
@@ -143,10 +152,9 @@ M 100644 :%d %s
     $rev->{user}, $wtime, $COMMITTER, $ctime, $TZ, bytes::length($msg), $msg, $revid, join('/', @parts);
 
     $commit_id++;
-    $cur->next();
 }
 
-$CACHE->close() or croak "can't close db: $!";
+untie %$CACHE;
 say "progress all done! let git fast-import finish ....";
 
 # get an author string that makes git happy and contains all relevant data
@@ -164,6 +172,67 @@ sub user {
 
     $email = sprintf ("%s <%s>", $uname // $ip, $email);
     return $email;
+}
+
+# open the wanted DB interface, with the desired mode, configure it
+# and return a tied hash reference.
+sub get_db {
+    my ($filename, $mode, $option) = @_;
+
+
+    if ($option eq 'tc') {
+        return get_tc_db($filename, $mode);
+    }
+    elsif ($option eq 'bdb') {
+        return get_bdb_db($filename, $mode);
+    }
+}
+
+sub get_tc_db {
+    my ($filename, $mode) = @_;
+
+    
+    my %t;
+    if ($mode eq 'new') {
+        # use TokyoCabinet BTree database as persistent storage
+        my $c = "TokyoCabinet::BDB"->new()                                    or croak "cannot create new DB: $!";
+        my $tflags = $c->TLARGE|$c->TDEFLATE;
+        my $mflags = $c->OWRITER|$c->OCREAT|$c->OTRUNC;
+        # sort keys as decimals
+        $c->setcmpfunc($c->CMPDECIMAL)                                      or croak "cannot set function: $!";
+        # use a large bucket
+        $c->tune(128, 256, 3000000, 4, 10, $tflags)                         or croak "cannot tune DB: $!";
+        $c->open($filename, $mflags)                                        or croak "cannot open DB: $!";
+        $c->close()                                                         or croak "cannot close DB: $!";
+        tie %t, "TokyoCabinet::BDB", $filename, "TokyoCabinet::BDB"->OWRITER()  or croak "cannot tie DB: $!";
+    }
+    elsif ($mode eq 'write') {
+        tie %t, "TokyoCabinet::BDB", $filename, "TokyoCabinet::BDB"->OWRITER()  or croak "cannot tie DB: $!";
+    }
+    elsif ($mode eq 'read') {
+        tie %t, "TokyoCabinet::BDB", $filename, "TokyoCabinet::BDB"->OREADER()   or croak "cannot tie DB: $!";
+    }
+    return \%t;
+}
+
+sub get_bdb_db {
+    my ($filename, $mode) = @_;
+
+    $DB_File::DB_BTREE->{compare} = sub { $_[0] <=> $_[1] };
+
+    my %t;
+    my $mflags;
+    if ($mode eq 'new') {
+        $mflags = DB_File::O_RDWR()|DB_File::O_TRUNC()|DB_File::O_CREAT();
+    }
+    elsif ($mode eq 'write') {
+        $mflags = DB_File::O_RDWR();
+    }
+    elsif ($mode eq 'read') {
+        $mflags = DB_File::O_RDONLY();
+    }
+    tie %t, 'DB_File', $filename, $mflags, undef, $DB_File::DB_BTREE    or croak "cannot open DB: $!";
+    return \%t;
 }
 
 # parse the $stream and put the result to $queue
@@ -226,6 +295,10 @@ Options:
                     For depth = 3 the page 'Actinium' is written to
                     'A/c/t/Actinium.mediawiki'.
                     (default = 3)
+
+    -db (tc|bdb)    Define the database backend to use for persisting.
+                    'tc' for Tokyo Cabinet is the default. 'bdb' is for
+                    support via the standard Perl module DB_File;
 
     -current
     -c              Use the current time as commit time. Default is to use

@@ -3,18 +3,33 @@ revision by revision and writes a data stream to stdout suitable for
 git fast-import.
 
 The first 1000 pages of the german Wikipedia and all their revisions
-(about 390000) can be dumped in about 35 min on relatively moderate
+(about 390000) can be dumped in about 15 min on relatively moderate
 hardware.
 
-You need at least Perl 5.10 and the TokyoCabinet libraries plus
-their Perl bindings.
+You need at least Perl 5.10. The Perl interpreter has to be compiled
+with threads support.
 
-You need libxml2 compiled with Reader and Pattern support
+As persistent data store you can use TokyoCabinet and BDB. Support
+for BDB is already included in most Perl distributions via the DB_File
+module. This always used as fallback, if no other options are available.
+
+Recommended especially for larger imports is the Tokyo Cabinet data
+store. For these you need the Tokyo Cabinet libraries plus
+their Perl bindings. They can be found at http://1978th.net/tokyocabinet/ .
+
+You need libxml2 compiled with Reader and Pattern support.
 
 You need the following modules and their dependencies from CPAN:
 
 - XML::LibXML
 - Regexp::Common
+
+Most Linux distributions will already have them. Under Debian / Ubuntu
+the following command should set you:
+
+  sudo apt-get install libxml-libxml-perl libregexp-common-perl
+
+
 
 
 Have fun.
