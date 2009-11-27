@@ -19,11 +19,11 @@ require bytes;
 #use LibXML_WMD;
 use Regexp::Common qw(URI net);
 use POSIX qw(strftime);
-use POSIX::strptime;
 use List::Util qw(min first);
 use Getopt::Long;
 use TokyoCabinet;
 use Storable qw(thaw nfreeze);
+use Time::Piece;
 
 binmode(STDOUT, ':utf8');
 binmode(STDERR, ':utf8');
@@ -33,6 +33,7 @@ my $PAGES       = 10;
 my $COMMITTER   = 'Levitation-pl <lev@servercare.eu>';
 my $DEPTH       = 3;
 my $DIR         = '.';
+my $CURRENT;
 my $HELP;
 my @NS;
 my $ALL;
@@ -43,13 +44,15 @@ my $result = GetOptions(
     'tmpdir|t=s'    => \$DIR,
     'ns|n=s'        => \@NS,
     'all|a'         => \$ALL,
+    'current|c'     => \$CURRENT,
     'help|?'        => \$HELP,
 );
 usage() if !$result || $HELP;
 
 @NS = ('Main') if !@NS;
 
-my $TZ = strftime('%z', localtime());
+# FIXME: would like to use Time::Piece's strftime(), but it returns the wrong timezone
+my $TZ = $CURRENT ? strftime('%z', localtime()) : '+0000';
 
 my $filename = "$DIR/levit.db";
 
@@ -104,8 +107,13 @@ while (defined(my $page = $queue->dequeue()) ) {
 $thr->join();
 close($stream);
 
+$CACHE->close() or croak "db can't be closed: $!";
+$CACHE = TokyoCabinet::BDB->new() or croak "db new: $!";
+$CACHE->open($filename, $CACHE->OREADER) or croak "db can't be reopened: $!";
+
+
 # go over the persisted metadata with a cursor
-my $cur = TokyoCabinet::BDBCUR->new($CACHE);
+my $cur = TokyoCabinet::BDBCUR->new($CACHE) or croak "can't get a cursor on db: $!";
 $cur->first();
 say "progress processing $c_rev revisions";
 
@@ -130,7 +138,8 @@ while (defined(my $revid = $cur->key())){
 
     $rev->{title} =~ s{/}{\x1c}g;
     push @parts, $rev->{title};
-    my $time = strftime('%s', POSIX::strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ'));
+    my $wtime = Time::Piece->strptime($rev->{timestamp}, '%Y-%m-%dT%H:%M:%SZ')->strftime('%s');
+    my $ctime = $CURRENT ? time() : $wtime;
 
     print sprintf
 q{commit refs/heads/%s
@@ -140,13 +149,14 @@ data %d
 %s
 M 100644 :%d %s
 },
-    $branch, $rev->{user}, $time, $COMMITTER, time(), $TZ, bytes::length($msg), $msg, $revid, join('/', @parts);
+    $branch, $rev->{user}, $wtime, $COMMITTER, $ctime, $TZ, bytes::length($msg), $msg, $revid, join('/', @parts);
 
     $commit_id++;
     $cur->next();
 }
-say "progress all done! let git fast-import finish ....";
 
+$CACHE->close() or croak "can't close db: $!";
+say "progress all done! let git fast-import finish ....";
 
 # get an author string that makes git happy and contains all relevant data
 sub user {
@@ -155,11 +165,12 @@ sub user {
     my $uid = $page->{userid};
     my $ip = $page->{ip};
     $ip = "255.255.255.255" if !defined $ip || $ip !~ $RE{net}{IPv4};
-    my $uname = $page->{username};
+    my $uname = $page->{username} || $page->{userid} || $ip || "Unknown";
 
     my $email = defined $uid    ? sprintf("uid-%s@%s", $uid, $domain)
               : defined $ip     ? sprintf("ip-%s@%s", $ip, $domain)
-              :                   "";
+              :                   sprintf("unknown@%s", $domain);
+
     $email = sprintf ("%s <%s>", $uname // $ip, $email);
     return $email;
 }
@@ -187,6 +198,10 @@ sub thr_parse {
         # make threads::shared happy (initializes shared hashrefs);
         my $h = &share({});
         %$h = %$rev;
+        while ($queue->pending() > 10000) {
+            threads->yield();
+        }
+
         $queue->enqueue($h);
     }
 
@@ -229,6 +244,12 @@ Options:
 
     -all
     -a              Import all namespaces. Default is "no".
+
+    -current
+    -c              Use the current time as commit time. Default is to use
+                    the time of the wiki revision. NOTICE: Using this option
+                    will create repositories that are guaranteed not to be
+                    equal to other imports of the same MediaWiki dump.
 
     -help
     -h              Display this help text.
