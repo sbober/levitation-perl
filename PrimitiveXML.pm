@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use XML::Bare;
 use Scalar::Util qw(openhandle);
+use HTML::Entities;
 
 sub new {
     my ($class) = shift @_;
@@ -49,7 +50,7 @@ sub next {
     my $r;
     if ($elt =~ m{\A \s* <page>}xms) {
         my $p = XML::Bare->new(text => $elt)->parse;
-        my $value = $p->{page}->{title}->{value};        
+        my $value = decode_entities($p->{page}->{title}->{value}||"");
         my ($ns, $title);
 
         if ($value =~ m/^($self->{nsre}):(.+)/) {
@@ -77,14 +78,14 @@ sub next {
     my %data = (
         %{ $self->{page} },
         revision_id => $r->{id}->{value},
-        comment     => $r->{comment}->{value},
-        minor       => $r->{minor}->{value},
-        text        => $r->{text}->{value},
+        comment     => decode_entities($r->{comment}->{value} || ""),
+        text        => decode_entities($r->{text}->{value}||""),
         timestamp   => $r->{timestamp}->{value},
         userid      => $r->{contributor}->{id}->{value},
-        username    => $r->{contributor}->{username}->{value},
+        username    => decode_entities($r->{contributor}->{username}->{value}||""),
         ip          => $r->{contributor}->{ip}->{value},
     );
+    $data{minor} = 1 if exists $r->{minor};
     return \%data;
 
 }
