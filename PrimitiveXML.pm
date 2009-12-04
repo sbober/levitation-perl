@@ -6,6 +6,13 @@ use XML::Bare;
 use Scalar::Util qw(openhandle);
 use HTML::Entities;
 
+my $e2c = {
+    amp => '&',
+    'lt' => '<',
+    'gt' => '>',
+    quot => q{"},
+    apos => q{'},
+};
 sub new {
     my ($class) = shift @_;
     my ($method, $input) = @_;
@@ -22,7 +29,7 @@ sub new {
         die "unsupported input method '$method'";
     }
 
-    my $infotxt = do {local $/ = '</siteinfo>'; <$in>;};
+    my $infotxt = do {local $/ = "</siteinfo>\n"; <$in>;};
     my $info = XML::Bare->new(text => $infotxt)->parse()->{mediawiki}->{siteinfo};
 
     my %self = (
@@ -42,15 +49,28 @@ sub next {
     my ($self) = @_;
     my $reader = $self->{reader};
 
-    my $elt = do { local $/ = '</revision>'; <$reader>; };
+    if (!eof($reader) && !@{$self->{list}}) {
+        local $/ = "</revision>\n";
+        my $c = 0;
+        while (($c < 50) && (my $line = <$reader>)) {
+            push @{$self->{list}}, $line;
+            $c++;
+        }
+    }
+    my $elt = shift @{$self->{list}};
     return if not $elt;
 
-    $elt =~ s{\A \s* </page>}{}xms;
+    #print STDERR "$elt\n";
+    substr($elt, 0, 10) = '' if substr($elt, 0, 9) eq '  </page>';
 
     my $r;
-    if ($elt =~ m{\A \s* <page>}xms) {
+    if (substr($elt,0,14) eq '    <revision>') {
+        $r = (XML::Bare->new(text => $elt))[1]->{revision};
+    }
+    elsif (substr($elt,0,8) eq '  <page>') {
         my $p = XML::Bare->new(text => $elt)->parse;
-        my $value = decode_entities($p->{page}->{title}->{value}||"");
+        my $value = $p->{page}->{title}->{value}||"";
+        _decode_entities($value, $e2c);
         my ($ns, $title);
 
         if ($value =~ m/^($self->{nsre}):(.+)/) {
@@ -67,22 +87,25 @@ sub next {
         $self->{page} = \%h;
         $r = $p->{page}->{revision};
     }
-    elsif ($elt =~ m{\A \s* <revision>}xms) {
-        $r = XML::Bare->new(text => $elt)->parse()->{revision};
-    }
     else {
         return;
     }
     
+    my $c = $r->{comment}->{value}||"";
+    my $t = $r->{text}->{value}||"";
+    my $u = $r->{contributor}->{username}->{value}||"";
+    _decode_entities($c, $e2c);
+    _decode_entities($t, $e2c);
+    _decode_entities($u, $e2c);
 
     my %data = (
         %{ $self->{page} },
         revision_id => $r->{id}->{value},
-        comment     => decode_entities($r->{comment}->{value} || ""),
-        text        => decode_entities($r->{text}->{value}||""),
+        comment     => $c,
+        text        => $t,
         timestamp   => $r->{timestamp}->{value},
         userid      => $r->{contributor}->{id}->{value},
-        username    => decode_entities($r->{contributor}->{username}->{value}||""),
+        username    => $u,
         ip          => $r->{contributor}->{ip}->{value},
     );
     $data{minor} = 1 if exists $r->{minor};
