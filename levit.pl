@@ -7,8 +7,10 @@ use feature ':5.10';
 use strict;
 use warnings;
 
-use Coro;
-use Coro::Channel;
+use threads;
+use threads::shared;
+use Thread::Queue;
+
 use FindBin;
 use lib "$FindBin::Bin";
 use Inline 'C';
@@ -42,7 +44,7 @@ my $DB          = 'tc';
 my $CURRENT;
 my $HELP;
 my $MAX_GFI     = 1000000;
-my $GFI_CMD     = 'git fast-import --quiet';
+my $GFI_CMD     = 'git fast-import --depth=8191';
 my @NS;
 my $ONE;
 
@@ -82,20 +84,19 @@ my $filename = "$DIR/levit.db";
 my $stream = \*STDIN;
 
 # put the parsing in a thread and provide a queue to give parses back through
-my $queue = Coro::Channel->new(10000);
-my $thr = Coro->new(\&thr_parse, $stream, $queue, $PAGES, \@NS);
-$thr->ready;
+my $queue = Thread::Queue->new();
+my $thr = threads->create(\&thr_parse, $stream, $queue, $PAGES, \@NS);
 
 my $CACHE = get_db($filename, 'new', $DB);
 
-my $domain = $queue->get;
+my $domain = $queue->dequeue;
 $domain = "git.$domain";
 
 my $c_rev = 0;
 my $max_id = 0;
 
 open(my $gfi, '|-:utf8', $GFI_CMD) or croak "error opening pipe to 'git fast-import': $!";
-while (defined(my $page = $queue->get) ) {
+while (defined(my $page = $queue->dequeue) ) {
     # record current revision and page ids to be able to provide meaningful progress messages
     if ($page->{new}) {
         printf {$gfi} "progress processing page '%s:%s'  $c_rev / < $max_id\n", $page->{namespace}, $page->{title};
@@ -118,7 +119,7 @@ while (defined(my $page = $queue->get) ) {
 
     # extract all relevant data
     my %rev = (
-        user    => user($page, $domain),
+        user    => $page->{user},
         comment => ($page->{comment} // "") . ( $page->{minor} ? " (minor)" : ""),
         timestamp    => $page->{timestamp},
         pid     => $page->{id},
@@ -241,12 +242,12 @@ sub get_tc_db {
     if ($mode eq 'new') {
         # use TokyoCabinet BTree database as persistent storage
         my $c = "TokyoCabinet::BDB"->new()                                    or croak "cannot create new DB: $!";
-        my $tflags = $c->TLARGE; #|$c->TDEFLATE;
+        my $tflags = $c->TLARGE|$c->TDEFLATE;
         my $mflags = $c->OWRITER|$c->OCREAT|$c->OTRUNC;
         # sort keys as decimals
         $c->setcmpfunc($c->CMPDECIMAL)                                      or croak "cannot set function: $!";
         # use a large bucket
-        $c->tune(128, 256, 3000000, 4, 10, $tflags)                         or croak "cannot tune DB: $!";
+        $c->tune(128, 256, 150000000, 4, 10, $tflags)                         or croak "cannot tune DB: $!";
         $c->open($filename, $mflags)                                        or croak "cannot open DB: $!";
         $c->close()                                                         or croak "cannot close DB: $!";
         tie %t, "TokyoCabinet::BDB", $filename, "TokyoCabinet::BDB"->OWRITER()  or croak "cannot tie DB: $!";
@@ -287,7 +288,7 @@ sub thr_parse {
 
     # give the site's domain to the boss thread
     my (undef, undef, $domain) = ($revs->{base} =~ $RE{URI}{HTTP}{-keep});
-    $queue->put($domain);
+    $queue->enqueue($domain);
     
     my $c_page = 0;
     my $current = "";
@@ -300,12 +301,17 @@ sub thr_parse {
             $rev->{new} = 1;
             last if $MPAGES > 0 && $c_page > $MPAGES;
         }
-
-        $queue->put($rev);
+        $rev->{user} = user($rev, $domain);
+        my $h = &share({});
+        %$h = %$rev;
+        while ($queue->pending() > 5000) {
+            threads->yield;
+        }
+        $queue->enqueue($h);
     }
 
     # give an undef to boss thread, to signal "we are done"
-    $queue->put(undef);
+    $queue->enqueue(undef);
     return;
 }
 
