@@ -144,22 +144,22 @@ sub get_revs {
 sub persist {
     my ($queue) = @_;
 
+    use CDB_File;
+
     my $DIR = opt('dir');
     my %DB;
-    for my $i (0..9) {
-        # a btree for the revisions
-        # format: array: [user_id, isip, username, page_id, namespace, 
-        #                 title, timestamp, comment, sha1, minor]
-        $DB{"revs$i"} = get_tc_btree("$DIR/revs$i.db");
-    }
 
     my $count = 0;
-    for my $k (keys %DB) {
-        $DB{$k}->tranbegin()
-            or croak tc_error("cannot begin transaction on $k DB",$DB{$k});
-    }
     while (my $data = $queue->dequeue) {
         #use Data::Dumper; print STDERR Dumper($data);
+
+        my $dbnr = int($data->{revision_id} / 4000000);
+        if (!exists $DB{"revs$dbnr"}) {
+            $DB{"revs$dbnr"} = CDB_File->new(
+                "$DIR/revs$dbnr.db", "t$dbnr.$$"
+            )
+                or croak "cannot create DB revs$dbnr: $!";
+        }
 
         #print STDERR "handling $data->{revision_id} 1\n";
         my $ip      = $data->{ip} // '';
@@ -181,33 +181,17 @@ sub persist {
             $sha1,
             defined($data->{minor})
         ]);
-        my $dbnr = $data->{revision_id} % 10;
-        $DB{"revs$dbnr"}->put("$data->{revision_id}", $rev)
-            or croak "error writing to revs$dbnr db: $!";
+        $DB{"revs$dbnr"}->insert($data->{revision_id}, $rev);
 
         #print STDERR "handling $data->{revision_id} 3\n";
 
         
         $count++;
-        if ($count % 1000000 == 0) {
-            
-            for my $k (keys %DB) {
-                my $db = $DB{$k};
-                $db->trancommit()
-                    or croak tc_error("cannot commit transaction on $k DB", $db);
-                $db->tranbegin()
-                    or croak tc_error("cannot begin transaction on $k DB",$db);
-            }
-
-        }
     }
 
     for my $k (keys %DB) {
         my $db = $DB{$k};
-        $db->trancommit()
-            or croak tc_error("cannot commit transaction on $k DB", $db);
-        $db->close()
-            or croak tc_error("error closing $k DB",$db);
+        $db->finish();
     }
 
     return;
