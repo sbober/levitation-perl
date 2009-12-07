@@ -51,13 +51,17 @@ work();
 
 sub work {
 
+    # create thread and queue for the persister
     my $queue       = Thread::Queue->new();
     my $persister   = threads->create(\&persist, $queue);
 
     my $stream      = \*STDIN;
-
+    
+    # create thread and queue for the parser
     my $pqueue      = Thread::Queue->new();
     my $parse       = threads->create(\&get_revs, $stream, $pqueue);
+
+
     my $domain      = $pqueue->dequeue;
 
     my $count_rev   = 0;
@@ -81,6 +85,7 @@ sub work {
         my $revid   = $rev->{revision_id};
         $max_id     = $revid if $revid > $max_id;
 
+        # feed the text to git fast-import
         blob_to_gfi( $gfi, $rev );
 
         sleep 1 while $queue->pending > 1000;
@@ -94,6 +99,7 @@ sub work {
         $count_page, $count_rev;
 }
 
+
 sub blob_to_gfi {
     my ($gfi, $rev) = @_;
 
@@ -101,14 +107,15 @@ sub blob_to_gfi {
     $rev->{len}       = bytes::length($rev->{text});
 
     print {$gfi} sprintf(qq{blob\ndata %d\n%s\n}, $rev->{len}, $rev->{text});
-
 }
+
 
 sub get_revs {
     my ($stream, $queue) = @_;
 
     my $parser      = PrimitiveXML->new(handle => $stream);
     my $domain      =($parser->{base} =~ $RE{URI}{HTTP}{-keep})[2];
+
     $queue->enqueue($domain);
 
     my $count_page  = 0;
@@ -146,10 +153,16 @@ sub persist {
     my $DIR = opt('dir');
     my %DB;
 
+
+    # partition the DB based on revision id and so that one DB slice
+    # doesn't hold more than 4M records. DB 0 gets revs 1 - 3999999, DB 1
+    # gets revs 4000000 - 7999999, ...
     my $count = 0;
     while (my $data = $queue->dequeue) {
 
         my $dbnr = int($data->{revision_id} / 4000000);
+
+        # create the DB slice if it doesn't exist
         if (!exists $DB{"revs$dbnr"}) {
             $DB{"revs$dbnr"} = CDB_File->new(
                 "$DIR/revs$dbnr.db", "t$dbnr.$$"
@@ -157,11 +170,13 @@ sub persist {
                 or croak "cannot create DB revs$dbnr: $!";
         }
 
+        # extract user information based on what's available
         my $ip      = $data->{ip} // '';
         $ip         = inet_aton($ip) if $ip =~ /^[\d.]+$/;
         my $uid     = $data->{userid} // $ip // -1;
         my $isip    = defined $ip && ($uid eq $ip);
 
+        # get the SHA1 with the quirky inline C function
         my $sha1 = '.' x 20;
         do {
             use bytes;
@@ -169,6 +184,7 @@ sub persist {
             sha1($stxt, bytes::length($stxt), $sha1)
         };
 
+        # serialize the data to JSON and put it in the DB
         my $rev = encode_json([
             $uid, $isip, 
             @{$data}{qw/username page_id namespace title timestamp comment/},
@@ -180,6 +196,7 @@ sub persist {
         $count++;
     }
 
+    # finish and close all DBs
     for my $k (keys %DB) {
         my $db = $DB{$k};
         $db->finish();
