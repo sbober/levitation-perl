@@ -26,7 +26,8 @@ use JSON::XS;
 use Socket qw(inet_aton);
 
 use PrimitiveXML;
-use TokyoCabinet;
+use CDB_File;
+
 
 binmode(STDOUT, ':utf8');
 binmode(STDERR, ':utf8');
@@ -37,13 +38,11 @@ my %OPTS = (
     committer   => 'Levitation-perl <lev@servercare.de>',
     depth       => 3,
     dir         => '.',
-    db          => 'tc',
     current     => undef,
     help        => undef,
     max_gfi     => 1000000,
     gfi_cmd     => 'git fast-import --depth=4000',
     ns          => [],
-    one         => undef,
 );
 
 
@@ -144,14 +143,11 @@ sub get_revs {
 sub persist {
     my ($queue) = @_;
 
-    use CDB_File;
-
     my $DIR = opt('dir');
     my %DB;
 
     my $count = 0;
     while (my $data = $queue->dequeue) {
-        #use Data::Dumper; print STDERR Dumper($data);
 
         my $dbnr = int($data->{revision_id} / 4000000);
         if (!exists $DB{"revs$dbnr"}) {
@@ -161,7 +157,6 @@ sub persist {
                 or croak "cannot create DB revs$dbnr: $!";
         }
 
-        #print STDERR "handling $data->{revision_id} 1\n";
         my $ip      = $data->{ip} // '';
         $ip         = inet_aton($ip) if $ip =~ /^[\d.]+$/;
         my $uid     = $data->{userid} // $ip // -1;
@@ -173,7 +168,6 @@ sub persist {
             my $stxt = sprintf(qq{blob %d\x00%s}, $data->{len}, $data->{text});
             sha1($stxt, bytes::length($stxt), $sha1)
         };
-        #print STDERR "handling $data->{revision_id} 2\n";
 
         my $rev = encode_json([
             $uid, $isip, 
@@ -183,9 +177,6 @@ sub persist {
         ]);
         $DB{"revs$dbnr"}->insert($data->{revision_id}, $rev);
 
-        #print STDERR "handling $data->{revision_id} 3\n";
-
-        
         $count++;
     }
 
@@ -195,59 +186,6 @@ sub persist {
     }
 
     return;
-}
-
-sub get_tc_btree {
-    my ($name) = @_;
-
-    my $c = "TokyoCabinet::BDB"->new()
-        or croak tc_error("cannot create new DB");
-
-    my $tflags = $c->TLARGE|$c->TDEFLATE;
-    my $mflags = $c->OWRITER|$c->OCREAT|$c->OTRUNC;
-
-    # sort keys as decimals
-    $c->setcmpfunc($c->CMPDECIMAL)
-        or croak tc_error("cannot set function", $c);
-
-    # use a large bucket
-    $c->tune(246, 512, 3000000, 4, 10, $tflags)
-        or croak tc_error("cannot tune DB", $c);
-
-    $c->setxmsiz(16777216)
-        or croak tc_error("cannot set memory map for DB", $c);
-    $c->open($name, $mflags)
-        or croak tc_error("cannot open DB", $c);
-
-    return $c;
-}
-
-sub get_tc_hash {
-    my ($name) = @_;
-    my $c = "TokyoCabinet::HDB"->new()
-        or croak tc_error("cannot create new DB");
-
-    my $tflags = $c->TLARGE; #|$c->TDEFLATE;
-    my $mflags = $c->OWRITER|$c->OCREAT|$c->OTRUNC;
-
-
-    # use a large bucket
-    $c->tune(10000000, 4, 10, $tflags)
-        or croak tc_error("cannot tune DB", $c);
-
-    $c->setcache(65536)
-        or croak tc_error("cannot set cache for DB", $c);
-
-    $c->open($name, $mflags)
-        or croak tc_error("cannot open DB", $c);
-
-    return $c;
-}
-
-sub tc_error {
-    my ($msg, $obj) = @_;
-
-    return sprintf("%s: %s\n", $msg, $obj->errmsg($obj->ecode()));
 }
 
 
@@ -310,10 +248,6 @@ Options:
                     For depth = 3 the page 'Actinium' is written to
                     'A/c/t/Actinium.mediawiki'.
                     (default = 3)
-
-    -db (tc|bdb)    Define the database backend to use for persisting.
-                    'tc' for Tokyo Cabinet is the default. 'bdb' is for
-                    support via the standard Perl module DB_File;
 
     -ns
     -n namespace    The namespace(s) to import. The option can be given

@@ -9,25 +9,16 @@ hardware.
 You need at least Perl 5.10. The Perl interpreter has to be compiled
 with threads support.
 
-As persistent data store you can use TokyoCabinet and BDB. Support
-for BDB is already included in most Perl distributions via the DB_File
-module. This always used as fallback, if no other options are available.
-
-Recommended especially for larger imports is the Tokyo Cabinet data
-store. For these you need the Tokyo Cabinet libraries plus
-their Perl bindings. They can be found at http://1978th.net/tokyocabinet/ .
-
-You need libxml2 compiled with Reader and Pattern support.
-
 You need the following modules and their dependencies from CPAN:
 
-- XML::LibXML
+- XML::Bare
 - Regexp::Common
+- CDB_File
 
-Most Linux distributions will already have them. Under Debian / Ubuntu
-the following command should set you:
+Some Linux distributions will already have the first two.
+Under Debian / Ubuntu the following command should set you:
 
-  sudo apt-get install libxml-libxml-perl libregexp-common-perl
+  sudo apt-get install libxml-bare-perl libregexp-common-perl
 
 
 
