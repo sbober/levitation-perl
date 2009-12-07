@@ -13,13 +13,16 @@ You need the following modules and their dependencies from CPAN:
 
 - XML::Bare
 - Regexp::Common
+- Inline
+- JSON::XS
 - CDB_File
 
-Some Linux distributions will already have the first two.
+
+Some Linux distributions will already have the first four.
 Under Debian / Ubuntu the following command should set you:
 
-  sudo apt-get install libxml-bare-perl libregexp-common-perl
-
+  sudo apt-get install libxml-bare-perl libregexp-common-perl \
+                       libinline-perl libjson-xs-perl
 
 
 
