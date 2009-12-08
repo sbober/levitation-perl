@@ -11,17 +11,17 @@ with threads support.
 
 You need the following modules and their dependencies from CPAN:
 
-- XML::Bare
 - Regexp::Common
 - Inline
 - JSON::XS
+
 - CDB_File
+- XML::Bare      >= 0.44
 
-
-Some Linux distributions will already have the first four.
+Some Linux distributions will already have the first three.
 Under Debian / Ubuntu the following command should set you:
 
-  sudo apt-get install libxml-bare-perl libregexp-common-perl \
+  sudo apt-get install libregexp-common-perl \
                        libinline-perl libjson-xs-perl
 
 
