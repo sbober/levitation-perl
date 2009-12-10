@@ -97,6 +97,15 @@ sub work {
     $parse->join;
     printf {$gfi} "progress step 1 done, written %d pages / %d revisions\n",
         $count_page, $count_rev;
+
+    open my $meta, '>', (opt('dir') . "/meta.json")
+        or die "cannot open meta.json for writing: $!";
+
+    print {$meta} encode_json({
+            maxrev => $max_id,
+            domain => $domain,
+    });
+    close($meta);
 }
 
 
@@ -172,7 +181,7 @@ sub persist {
 
         # extract user information based on what's available
         my $ip      = $data->{ip} // '';
-        $ip         = inet_aton($ip) if $ip =~ /^[\d.]+$/;
+        $ip         = $ip =~ /^[\d.]+$/ ? inet_aton($ip) : undef;
         my $uid     = $data->{userid} // $ip // -1;
         my $isip    = defined $ip && ($uid eq $ip);
 
@@ -187,7 +196,7 @@ sub persist {
         # serialize the data to JSON and put it in the DB
         my $rev = encode_json([
             $uid, $isip, 
-            @{$data}{qw/username page_id namespace title timestamp comment/},
+            @{$data}{qw/username id namespace title timestamp comment/},
             $sha1,
             defined($data->{minor})
         ]);
