@@ -38,7 +38,11 @@ sub new {
         reader      => $in,
         base        => $info->{base}->{value},
         sitename    => $info->{sitename}->{value},
-        _namespaces => {map {$_->{value} ||"" => $_->{key}->{value} } @{ $info->{namespaces}->{namespace} }  },
+        _namespaces => {
+            map {
+                $_->{value}  // "" => $_->{key}->{value}
+            } @{ $info->{namespaces}->{namespace} }
+        },
     );
     $self{nsre} = join( q{|}, map { quotemeta($_) } keys %{$self{_namespaces}} );
 
@@ -69,7 +73,7 @@ sub next {
     }
     elsif (substr($elt,0,8) eq '  <page>') {
         my $p = XML::Bare->new(text => $elt)->parse;
-        my $value = $p->{page}->{title}->{value}||"";
+        my $value = $p->{page}->{title}->{value} // "";
         _decode_entities($value, $e2c);
         my ($ns, $title);
 
@@ -91,9 +95,9 @@ sub next {
         return;
     }
     
-    my $c = $r->{comment}->{value}||"";
-    my $t = $r->{text}->{value}||"";
-    my $u = $r->{contributor}->{username}->{value}||"";
+    my $c = $r->{comment}->{value} // "";
+    my $t = $r->{text}->{value} // "";
+    my $u = $r->{contributor}->{username}->{value} // "";
     _decode_entities($c, $e2c);
     _decode_entities($t, $e2c);
     _decode_entities($u, $e2c);
