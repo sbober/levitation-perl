@@ -14,15 +14,19 @@ You need the following modules and their dependencies from CPAN:
 - Regexp::Common
 - Inline
 - JSON::XS
+- Devel::Size
 
 - CDB_File
 - XML::Bare      >= 0.44
+- Deep::Hash::Utils
+- File::Path     > 2.04 ? (2.08 is fine; it has to export make_path)
 
-Some Linux distributions will already have the first three.
+Some Linux distributions will already have the first four.
 Under Debian / Ubuntu the following command should set you:
 
   sudo apt-get install libregexp-common-perl \
-                       libinline-perl libjson-xs-perl
+                       libinline-perl libjson-xs-perl \
+                       libdevel-size-perl
 
 
 
