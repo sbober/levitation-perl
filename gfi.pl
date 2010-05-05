@@ -13,33 +13,35 @@
 # file path: the '/' seperated path of the file starting at the
 # top tree
 
+use feature ':5.10';
+
 use strict;
 use warnings;
+require bytes;
 
-use feature ':5.10';
 use FindBin;
 use lib "$FindBin::Bin";
 
 use JSON::XS;
 use Digest::SHA1 qw(sha1);
-use Fcntl;
-use Devel::Size qw(total_size);
-
 use Deep::Hash::Utils qw(nest deepvalue);
 
-use File::Path qw(make_path);
-require bytes;
+use Encode;
 
 use Git::Tree;
 use Git::Pack;
 
-use Encode;
 
 binmode(STDOUT, ':utf8');
 binmode(STDERR, ':utf8');
 binmode(STDIN, ':utf8');
 
 STDOUT->autoflush(1);
+
+my %OPTS = (
+    pack_size => int(2 * 1024**3),
+    delta_depth => 50,
+);
 
 my $tree = {};
 my $last_commit;
@@ -72,8 +74,11 @@ while (my $line = <>) {
 
     my $commit = get_commit( $last_commit, $sha1, Encode::encode_utf8($rev->[0]) );
     my ($bin, $ofs) = $pack->maybe_write('commit', $commit);
-    print STDERR "$ofs, commit\n";
+
+
     $last_commit = unpack('H*', $bin);
+
+    $pack->breakpoint if $pack->{outbytes} >= $OPTS{pack_size};
 }
 
 $pack->close;
@@ -106,7 +111,7 @@ sub write_tree {
     my ($twig, $path_ref) = @_;
 
     my $path = join( '/', @$path_ref );
-    if ($may_delta{$path} && $may_delta{$path} < 50 && $twig->{_sha1} && $twig->{_ofs}) {
+    if ($may_delta{$path} && $may_delta{$path} < $OPTS{delta_depth} && $twig->{_sha1} && $twig->{_ofs}) {
         #say STDERR "path: $path";
         #use Data::Dumper; print STDERR Dumper($tree);
         my $diff = $twig->{_tree}->get_diff;
