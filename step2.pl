@@ -57,6 +57,7 @@ sub step2 {
     my $domain = opt('domain');
     my $gfi = get_gfi();
 
+    printf {$gfi} "progress Step 2: creating %d commits\n", opt('revs');
     my $commit_id = 1;
     while (my $rev = next_rev()) {
         commit_times($rev);
@@ -76,6 +77,8 @@ sub step2 {
         commit_to_gfi($gfi, $rev);
         $commit_id++;
     }
+
+    print {$gfi} "progress all done!\n";
 }
 
 sub next_rev {
@@ -83,7 +86,7 @@ sub next_rev {
     state $DB;
     state $DIR = opt('dir');
     state $MAX = opt('revs');
-    while (defined $revid && (!$MAX || $revid < $MAX)) {
+    while (defined $revid && (!$MAX || $revid <= $MAX)) {
         $revid++;
 
         if ($revid % 4000000 == 0) {
@@ -162,6 +165,29 @@ sub commit_to_gfi {
     state $COMMITTER = opt('committer');
     state $TZ        = opt('tz');
 
+    my $tmpl = qq{author %s %s +0000\ncommitter %s %s %s\n\n%s\n};
+
+    my $commit = sprintf(
+        $tmpl,
+        $rev->{user}, $rev->{wtime},
+        $COMMITTER, $rev->{ctime}, $TZ,
+        $rev->{msg}
+    );
+
+    print {$gfi} encode_json([
+        $commit,
+        unpack('H*', $rev->{sha1}),
+        $rev->{path}]), "\n";
+}
+
+=begin
+
+sub commit_to_gfi {
+    my ($gfi, $rev) = @_;
+
+    state $COMMITTER = opt('committer');
+    state $TZ        = opt('tz');
+
     my $tmpl = 
 qq{commit refs/heads/master
 author %s %s +0000
@@ -181,12 +207,17 @@ M 100644 %s %s
     );
 }
 
+
+=cut
+
+
 sub get_gfi {
     my $cmd = opt('gfi_cmd');
-    open(my $gfi, '|-:utf8', $cmd)
-        or croak "error opening pipe to 'git fast-import': $!";
+    return \*STDOUT;
+    #open(my $gfi, '|-:utf8', $cmd)
+    #    or croak "error opening pipe to 'git fast-import': $!";
 
-    return $gfi;
+    #return $gfi;
 }
 
 

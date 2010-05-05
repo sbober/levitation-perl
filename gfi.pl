@@ -17,33 +17,35 @@ use strict;
 use warnings;
 
 use feature ':5.10';
+use FindBin;
+use lib "$FindBin::Bin";
 
 use JSON::XS;
 use Digest::SHA1 qw(sha1);
 use Fcntl;
 use Devel::Size qw(total_size);
 
-#use Compress::Zlib qw(compress);
 use Deep::Hash::Utils qw(nest deepvalue);
 
 use File::Path qw(make_path);
-#use PerlIO::gzip;
-use IO::Compress::Deflate qw(deflate $DeflateError);
 require bytes;
+
+use Git::Tree;
+use Git::Pack;
+
+use Encode;
 
 binmode(STDOUT, ':utf8');
 binmode(STDERR, ':utf8');
+binmode(STDIN, ':utf8');
 
 STDOUT->autoflush(1);
 
 my $tree = {};
 my $last_commit;
 my $GIT = '.git/objects';
-
-
-# create object directories
-make_path( map { sprintf qq($GIT/%02x), $_ } (0 .. 255) );
-
+my $pack = Git::Pack->new;
+my %may_delta;
 
 while (my $line = <>) {
     if (substr($line, 0, 9) eq 'progress ') {
@@ -53,98 +55,97 @@ while (my $line = <>) {
 
     my $rev = decode_json($line);
 
-    my @parts = split qr{/}, $rev->[2];
+    my @path = split qr{/}, Encode::encode_utf8($rev->[2]);
+    my $file = pop @path;
+
+    my $twig = get_tree($tree, @path);
+    $twig->{_tree}->add(['100644', $file, pack('H*',$rev->[1]) ]  );
     
-    nest($tree, @parts, {_sha1 => pack('H*', $rev->[1]), _mode => '100644'});
-
-    while(@parts) {
-        pop @parts;
-        my $twig = deepvalue($tree, @parts);
-        my $t = get_tree($twig);
-        @$twig{qw(_mode _sha1)} = ('40000', $t->[0]);
-        write_object($t);
+    my $sha1;
+    while(@path) {
+        $sha1 = write_tree($twig, \@path);
+        my $dir = pop @path;
+        $twig = get_tree($tree, @path);
+        $twig->{_tree}->add(['40000', $dir, $sha1]);
     }
+    $sha1 = write_tree($twig, \@path);
 
-    my $commit = get_commit( $last_commit, $tree->{_sha1}, $rev->[0] );
-    write_object( $commit );
-    $last_commit = unpack('H*', $commit->[0]);
+    my $commit = get_commit( $last_commit, $sha1, Encode::encode_utf8($rev->[0]) );
+    my ($bin, $ofs) = $pack->maybe_write('commit', $commit);
+    print STDERR "$ofs, commit\n";
+    $last_commit = unpack('H*', $bin);
 }
+
+$pack->close;
+
+
 
 print STDERR "last commit: $last_commit\n";
 print STDERR "size: ", total_size($tree), "\n";
 
-sub write_object {
-    my ($o) = @_;
-    my $sha1 = unpack('H*', $o->[0]);
-
-    my $path = join( q{/}, $GIT, substr($sha1, 0, 2), substr($sha1, 2) );
-
-#    my $status = deflate \($o->[1]) => $path
-#        or die "deflate failed: $DeflateError\n";
-#=begin
-
-    sysopen(my $out, $path, O_WRONLY | O_TRUNC | O_CREAT);
-    syswrite $out, defl(\($o->[1]))
-        or die "cannot write to '$path'";
-    close($out)
-        or die "cannot close '$path'";
-
-#=cut
-
+sub get_tree {
+    my ($tree, @path) = @_;
+    my $t = deepvalue($tree, @path);
+    if (!$t) {
+        $t = {
+            _tree => Git::Tree->new,
+            _sha1 => undef,
+            _ofs => undef
+        };
+        nest($tree, @path, $t);
+    }
+    if (!$t->{_tree}) {
+        $t->{_tree} = Git::Tree->new;
+        $t->{_sha1} = undef;
+        $t->{_ofs} = undef;
+    }
+    return $t;
 }
+
+sub write_tree {
+    my ($twig, $path_ref) = @_;
+
+    my $path = join( '/', @$path_ref );
+    if ($may_delta{$path} && $may_delta{$path} < 50 && $twig->{_sha1} && $twig->{_ofs}) {
+        #say STDERR "path: $path";
+        #use Data::Dumper; print STDERR Dumper($tree);
+        my $diff = $twig->{_tree}->get_diff;
+        my $obj = $twig->{_tree}->get_object;
+        my $delta = Git::Pack::create_delta(\$twig->{_old}, \$obj, $diff);
+
+        my ($sha1, $ofs) = $pack->delta_write('tree', $obj, $delta, $twig->{_ofs});
+        $twig->{_sha1} = $sha1;
+        $twig->{_ofs} = $ofs;
+        $twig->{_old} = $obj;
+        $may_delta{$path}++;
+        print STDERR "$ofs, ofs-delta\n";
+    }
+    else {
+        my $obj = $twig->{_tree}->get_object;
+        my ($sha1, $ofs) = $pack->maybe_write('tree', $obj);
+        $twig->{_sha1} = $sha1;
+        $twig->{_ofs} = $ofs;
+        $twig->{_old} = $obj;
+        $may_delta{$path} = 1;
+        print STDERR "$ofs, tree\n";
+    }
+    my $sha1 = $twig->{_sha1};
+    $twig->{_tree}->reset;
+    return $sha1;
+}
+
+
 
 sub get_commit {
-    my ($parent, $sha1, $msg) = @_;
+    my ($parent, $sum, $msg) = @_;
 
     my $content = sprintf qq{tree %s\n%s%s},
-        unpack('H*', $sha1),
+        unpack('H*', $sum),
         (defined $parent ? qq{parent $parent\n} : ''),
         $msg;
-    my $c = sprintf qq{commit %d\x00%s}, bytes::length($content), $content;
 
-    return [sha1($c), $c];
+    return $content;
 }
 
-sub get_tree {
-    my ($twig) = @_;
-
-    use bytes;
-    my @k = grep { $_ ne '_sha1' && $_ ne '_mode' } keys %$twig;
-    my $tmpl =  qq{%s %s\x00%s} x @k;
-    my @s = sort @k;
-    my @v = map { $twig->{$_}->{_mode}, $_, $twig->{$_}->{_sha1}; } @s;
-    my $content = sprintf $tmpl, @v;
-        
-    my $c = sprintf qq{tree %d\x00%s}, bytes::length($content), $content;
-    return [sha1($c), $c];
-}
-
-sub defl {
-    my ($t) = @_;
-    my ($out1, $out2);
-
-    use Compress::Raw::Zlib;
-    my $err;
-    state $x = Compress::Raw::Zlib::_deflateInit(
-        0,
-        Z_DEFAULT_COMPRESSION(),
-        Z_DEFLATED(),
-        MAX_WBITS(),
-        MAX_MEM_LEVEL(),
-        Z_DEFAULT_STRATEGY(),
-        4096, ""
-    );
-
-    $err = $x->deflate($t, $out1);
-    $err == Z_OK or die "cannot deflate object";
-    
-    $err = $x->flush($out2);
-    $err == Z_OK or die "cannot finish object";
-
-    $err = $x->deflateReset();
-    $err == Z_OK or die "cannot reset object";
-
-    return $out1 . $out2;
-}
 
 
