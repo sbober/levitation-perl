@@ -1,0 +1,4 @@
+*.swp
+_Inline/
+nytprof/
+nytprof.out
