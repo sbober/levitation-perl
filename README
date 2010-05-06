@@ -9,20 +9,26 @@ hardware.
 You need at least Perl 5.10. The Perl interpreter has to be compiled
 with threads support.
 
+You also need a working C compiler for the inline SHA1 C function.
+
 You need the following modules and their dependencies from CPAN:
 
 - Regexp::Common
 - Inline
 - JSON::XS
+- Compress::Raw::Zlib
+- Carp::Assert
 
 - CDB_File
 - XML::Bare      >= 0.44
+- Deep::Hash::Utils
 
-Some Linux distributions will already have the first three.
+Some Linux distributions will already have the first set.
 Under Debian / Ubuntu the following command should set you:
 
   sudo apt-get install libregexp-common-perl \
-                       libinline-perl libjson-xs-perl
+                       libinline-perl libjson-xs-perl \
+                       libcompress-raw-zlib-perl libcarp-assert-perl
 
 
 

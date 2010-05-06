@@ -216,9 +216,9 @@ sub encode_size {
 }
 
 sub create_delta {
-    my ($base, $target, $seq) = @_;
+    my ($baselen, $target, $seq) = @_;
     my $out = '';
-    $out .= encode_size(bytes::length($$base));
+    $out .= encode_size($baselen);
     $out .= encode_size(bytes::length($$target));
 
     foreach my $item (@$seq) {
