@@ -30,6 +30,7 @@ use Encode;
 
 use Git::Tree;
 use Git::Pack;
+use Git::Common;
 
 
 binmode(STDOUT, ':utf8');
@@ -78,15 +79,19 @@ while (my $line = <>) {
 
     $last_commit = unpack('H*', $bin);
 
-    $pack->breakpoint if $pack->{outbytes} >= $OPTS{pack_size};
+    if ($pack->{outbytes} >= $OPTS{pack_size}) {
+        $pack->breakpoint;
+        undef %may_delta;
+    };
 }
 
 $pack->close;
 
+open my $ref, '>', Git::Common::repo('refs/heads/master') or die 'cannot open "master"';
+print {$ref} $last_commit or die 'cannot write to "master"';
+close($ref) or die 'cannot close "master"';
 
 
-print STDERR "last commit: $last_commit\n";
-print STDERR "size: ", total_size($tree), "\n";
 
 sub get_tree {
     my ($tree, @path) = @_;
@@ -112,8 +117,6 @@ sub write_tree {
 
     my $path = join( '/', @$path_ref );
     if ($may_delta{$path} && $may_delta{$path} < $OPTS{delta_depth} && $twig->{_sha1} && $twig->{_ofs}) {
-        #say STDERR "path: $path";
-        #use Data::Dumper; print STDERR Dumper($tree);
         my $diff = $twig->{_tree}->get_diff;
         my $obj = $twig->{_tree}->get_object;
         my $delta = Git::Pack::create_delta(\$twig->{_old}, \$obj, $diff);
@@ -123,7 +126,6 @@ sub write_tree {
         $twig->{_ofs} = $ofs;
         $twig->{_old} = $obj;
         $may_delta{$path}++;
-        print STDERR "$ofs, ofs-delta\n";
     }
     else {
         my $obj = $twig->{_tree}->get_object;
@@ -132,7 +134,6 @@ sub write_tree {
         $twig->{_ofs} = $ofs;
         $twig->{_old} = $obj;
         $may_delta{$path} = 1;
-        print STDERR "$ofs, tree\n";
     }
     my $sha1 = $twig->{_sha1};
     $twig->{_tree}->reset;
