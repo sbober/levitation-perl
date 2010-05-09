@@ -158,21 +158,23 @@ sub _end {
 
     $f->close;
 
-    my @res = run(command => ['git', 'index-pack', '-v', '--index-version=2',
-                              "$self->{filename}.pack"]);
-    croak "error executing git index-pack: $res[1] | " . join('', @{$res[4]}) if !$res[0];
-    croak "git index-pack produced no output2" if !@{$res[3]};
+#    my @res = run(command => ['git', 'index-pack', '-v', '--index-version=2',
+#                              "$self->{filename}.pack"]);
+#    croak "error executing git index-pack: $res[1] | " . join('', @{$res[4]}) if !$res[0];
+#    croak "git index-pack produced no output2" if !@{$res[3]};
 
-    my $out = join('', @{$res[3]});
-    chomp $out;
-    print STDERR "PACKOUT: $out\n";
+#    my $out = join('', @{$res[3]});
+    my $res = `git index-pack -v --index-version=2 $self->{filename}.pack`;
+    chomp $res;
+    croak "git index-pack produced no output2" if !$res;
+    print STDERR "PACKOUT: $res\n";
 
-    my $nameprefix = Git::Common::repo("objects/pack/pack-$out");
+    my $nameprefix = Git::Common::repo("objects/pack/pack-$res");
     unlink "$self->{filename}.map" if -e "$self->{filename}.map";
     rename( "$self->{filename}.pack", "${nameprefix}.pack" );
     rename( "$self->{filename}.idx", "${nameprefix}.idx" );
 
-    return $out;
+    return $res;
 }
 
 sub close {
