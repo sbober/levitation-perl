@@ -6,6 +6,10 @@ The first 1000 pages of the german Wikipedia and all their revisions
 (about 390000) can be dumped in about 15 min on relatively moderate
 hardware.
 
+
+Dependencies
+------------
+
 You need at least Perl 5.10. The Perl interpreter has to be compiled
 with threads support.
 
@@ -29,6 +33,23 @@ Under Debian / Ubuntu the following command should set you:
   sudo apt-get install libregexp-common-perl \
                        libinline-perl libjson-xs-perl \
                        libcompress-raw-zlib-perl libcarp-assert-perl
+
+
+Usage
+-----
+
+First, initialize a git repository:
+
+  cd /tmp
+  mkdir blawiki
+  cd blawiki
+  git init
+
+
+Then, "levitate". This is a two-step process:
+
+  cat /path/to/blawiki-dump.xml | /path/to/levitation-perl/step1.pl
+  /path/to/levitation-perl/step2.pl | /path/to/levitation-perl/gfi.pl
 
 
 
