@@ -234,7 +234,7 @@ sub create_delta {
                 }
             }
             my $s = $i2 - $i1;
-            for my $i (0,1) {
+            for my $i (0..2) {
                 if ($s & 0xff << $i*8) {
                     $scratch .= chr(($s >> $i*8) & 0xff);
                     $op |= 1 << (4+$i);
