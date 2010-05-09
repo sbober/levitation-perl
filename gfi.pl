@@ -40,7 +40,7 @@ binmode(STDIN, ':utf8');
 STDOUT->autoflush(1);
 
 my %OPTS = (
-    pack_size => int(2 * 1024**3),
+    pack_size => int(600 * 1024**2),
     delta_depth => 50,
 );
 
