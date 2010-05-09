@@ -7,7 +7,7 @@ use warnings;
 
 use Git::Delta;
 use Git::Common qw(repo);
-use Digest::SHA1;
+use Faster;
 use File::Temp qw(tempfile);
 use Carp::Assert;
 use IPC::Cmd qw(run);
@@ -197,9 +197,9 @@ sub breakpoint {
 sub calc_hash {
     my ($type, $content) = @_;
     my $header = sprintf "%s %d\0", $type, bytes::length($content);
-    my $sum = Digest::SHA1->new;
-    $sum->add($header, $content);
-    return $sum->digest;
+    my $stxt = $header . $content;
+    my $sum = Faster::sha1($stxt);
+    return $sum;
 }
 
 
@@ -220,8 +220,8 @@ sub encode_size {
 sub create_delta {
     my ($baselen, $target, $seq) = @_;
     my $out = '';
-    $out .= encode_size($baselen);
-    $out .= encode_size(bytes::length($$target));
+    $out .= Faster::encode_size($baselen);
+    $out .= Faster::encode_size_with($$target);
 
     foreach my $item (@$seq) {
         my ($opcode, $i1, $i2, $j1, $j2) = @$item;
