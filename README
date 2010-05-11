@@ -14,6 +14,8 @@ You need at least Perl 5.10. The Perl interpreter has to be compiled
 with threads support.
 
 You also need a working C compiler for the inline SHA1 C function.
+Currently this _must_ be gcc 4.3 callable as 'gcc-4.3'. This will be
+fixed soon.
 
 You need the following modules and their dependencies from CPAN:
 
