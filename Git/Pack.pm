@@ -60,7 +60,7 @@ sub _open {
     binmode($fh, ':raw');
     $self->{file} = $fh;
     $self->{filename} = substr($name, 0, -5);
-    $self->{file}->syswrite("PACK\0\0\0\2\0\0\0\0");
+    syswrite($fh, "PACK\0\0\0\2\0\0\0\0");
 }
 
 sub _raw_write {
@@ -68,17 +68,17 @@ sub _raw_write {
 
     my $f = $self->{file};
 
-    my $ofs = $f->sysseek(0, 1); # emulate systell
-    $f->syswrite($hdr);
+    my $ofs = sysseek($f, 0, 1); # emulate systell
+    syswrite($f, $hdr);
     $self->{outbytes} += bytes::length($hdr);
 
     if ($prev_ofs) {
         my $diff = $ofs - $prev_ofs;
         my $ofs_hdr = _encode_ofs($diff);
-        $f->syswrite($ofs_hdr);
+        syswrite($f, $ofs_hdr);
         $self->{outbytes} += bytes::length($ofs_hdr);
     }
-    $f->syswrite($data);
+    syswrite($f, $data);
     $self->{outbytes} += bytes::length($data);
     $self->{count}++;
     return $ofs;
@@ -141,22 +141,22 @@ sub _end {
     $self->{file} = undef;
     $self->{objcache} = {};
 
-    $f->sysseek(8,0);
+    sysseek($f, 8, 0);
     my $cp = pack 'N', $self->{count};
     assert(bytes::length($cp) == 4);
-    $f->syswrite($cp);
+    syswrite($f, $cp);
 
-    $f->sysseek(0,0);
+    sysseek($f, 0, 0);
     my $sum = Digest::SHA1->new;
     while (1) {
         my $b;
-        my $s = $f->sysread($b, 65536);
+        my $s = sysread($f, $b, 65536);
         last if not $s;
         $sum->add($b);
     }
-    $f->syswrite($sum->digest);
+    syswrite($f, $sum->digest);
 
-    $f->close;
+    close($f);
 
 #    my @res = run(command => ['git', 'index-pack', '-v', '--index-version=2',
 #                              "$self->{filename}.pack"]);
