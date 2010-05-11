@@ -23,7 +23,6 @@ use FindBin;
 use lib "$FindBin::Bin";
 
 use JSON::XS;
-use Digest::SHA1 qw(sha1);
 use Deep::Hash::Utils qw(nest deepvalue);
 
 use Encode;

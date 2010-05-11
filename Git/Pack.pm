@@ -13,6 +13,7 @@ use File::Temp qw(tempfile);
 use Carp::Assert;
 use IPC::Cmd qw(run);
 use Carp;
+use Digest::SHA1;
 use bytes ();
 
 my %_typemap = (
