@@ -1,7 +1,10 @@
 package Faster;
 
-use Inline 'C' => 'DATA';
-
+use Inline (
+    C => 'DATA',
+    CCFLAGS => '-O0',
+    CC => 'gcc-4.3'
+);
 1;
 
 __DATA__
@@ -337,13 +340,106 @@ SV* encode_size(unsigned long size) {
         size >>= 7;
     }
     out[n] = c;
-    return newSVpvn(out,n+1);
+    return sv_2mortal(newSVpvn(out,n+1));
 }
 
 SV* encode_size_with(SV* text) {
     unsigned long size;
     SvPV(text, size);
     return encode_size(size);
+}
+
+typedef enum {
+    EQUAL = 0,
+    INSERT = 1,
+    REPLACE = 2
+} dhunk_type;
+
+SV* create_delta(unsigned long baselen, SV* target, AV* seq) {
+    unsigned char out[4096];
+    unsigned char *tmp;
+    unsigned int n = 0;
+    unsigned int x;
+
+    SV *basesize, *targetsize;
+    SV **toparray, **subarray;
+
+    char *real;
+    AV* av;
+    
+    real = SvPV_nolen(target); 
+    basesize = encode_size(baselen);
+    targetsize = encode_size_with(target);
+
+    STRLEN len;
+
+    tmp = SvPV(basesize, len);
+    for (x = 0; x < len; x++) {
+        out[n++] = tmp[x];
+    }
+    tmp = SvPV(targetsize, len);
+    for (x = 0; x < len; x++) {
+        out[n++] = tmp[x];
+    }
+
+    for (x = 0; x <= av_len(seq); x++) {
+        int opcode;
+        SV** subsv = av_fetch(seq, x, 0);
+        AV* subav = (AV *) SvRV(*subsv);
+
+        opcode = SvIV(*(av_fetch(subav, 0, 0)));
+        if (opcode == EQUAL) {
+
+            unsigned int i = 0, ofs = 0, end = 0, size = 0;
+            unsigned char op = 0x80;
+            unsigned char scratch[7];
+            unsigned int n1 = 0;
+            unsigned int z;
+
+            ofs = SvIV(*(av_fetch(subav, 1, 0)));
+            end = SvIV(*(av_fetch(subav, 2, 0)));
+            size = end - ofs;
+
+            for (i = 0; i <= 3; i++) {
+                if (ofs & 0xff << i*8) {
+                    scratch[n1++] = (ofs >> i*8) & 0xff;
+                    op |= 1 << i;
+                }
+            }
+            for (i = 0; i <= 2; i++) {
+                if (size & 0xff << i*8) {
+                    scratch[n1++] = (size >> i*8) & 0xff;
+                    op |= 1 << (4+i);
+                }
+            }
+
+            out[n++] = op;
+            for (i = 0; i < n1; i++) {
+                out[n++] = scratch[i];
+            }
+        }
+        else if (opcode == INSERT || opcode == REPLACE) {
+            unsigned int ofs=0, end=0, size=0, o=0;
+
+            ofs = SvIV(*(av_fetch(subav, 3, 0)));
+            end = SvIV(*(av_fetch(subav, 4, 0)));
+            size = end - ofs;
+            o = ofs;
+            while (size > 127) {
+                out[n++] = 127;
+                memcpy(&out[n], real + o, 127);
+                size -= 127;
+                o += 127;
+                n += 127;
+            }
+            out[n++] = (unsigned char) size;
+            memcpy(&out[n], real + o, size);
+            n += size;
+        }
+        
+    }
+    return newSVpvn(out,n);
+    
 }
 
 

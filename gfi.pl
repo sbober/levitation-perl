@@ -119,7 +119,7 @@ sub write_tree {
     if ($may_delta{$path} && $may_delta{$path} < $OPTS{delta_depth} && $twig->{_sha1} && $twig->{_ofs}) {
         my $diff = $twig->{_tree}->get_diff;
         my $obj = $twig->{_tree}->get_object;
-        my $delta = Git::Pack::create_delta($twig->{_old}, \$obj, $diff);
+        my $delta = Faster::create_delta($twig->{_old}, $obj, $diff);
 
         my ($sha1, $ofs) = $pack->delta_write('tree', $obj, $delta, $twig->{_ofs});
         $twig->{_sha1} = $sha1;
