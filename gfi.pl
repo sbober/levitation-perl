@@ -121,6 +121,9 @@ sub write_tree {
         my $delta = Faster::create_delta($twig->{_old}, $obj, $diff);
 
         my ($sha1, $ofs) = $pack->delta_write('tree', $obj, $delta, $twig->{_ofs});
+
+        #dump_info('delta', $diff, $delta, $obj) if $ofs == 9720913;
+
         $twig->{_sha1} = $sha1;
         $twig->{_ofs} = $ofs;
         $twig->{_old} = bytes::length($obj);
@@ -152,5 +155,13 @@ sub get_commit {
     return $content;
 }
 
+sub dump_info {
+    my ($type, $diff, $delta, $obj) = @_;
+    require Data::Dump;
+    say STDERR $type;
+    say STDERR Data::Dump::dump($diff);
+    say STDERR Data::Dump::quote($delta);
+    say STDERR Data::Dump::quote($obj);
 
+}
 
