@@ -443,3 +443,15 @@ SV* create_delta(unsigned long baselen, SV* target, AV* seq) {
 }
 
 
+unsigned long array_sum( AV* array, int start, int end) {
+    unsigned int i;
+    unsigned long sum = 0;
+
+    if (start > end) return 0;
+
+    for (i = start; i <= end; i++) {
+        sum += SvIV(*(av_fetch(array, i, 0)));
+    }
+    return sum;
+}
+

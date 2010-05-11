@@ -94,13 +94,12 @@ sub get_diff {
     #croak "called with too small tree" if @$sizes < 2;
     my ($idx, $action) = defined $self->{inspos} ? ($self->{inspos}, INSERT)
                                                  : ($self->{reppos}, REPLACE);
-    my @pre = $idx ? @$sizes[0..$idx-1] : ();
+
     my $it = $sizes->[$idx];
-    my @post = $idx < @$sizes - 1 ? @$sizes[$idx+1..@$sizes-1] : ();
     
     my @answer;
-    my $presum = int(sum(@pre) // 0);
-    my $postsum = int(sum(@post) // 0);
+    my $presum = Faster::array_sum($sizes, 0, $idx-1);
+    my $postsum = Faster::array_sum($sizes, $idx+1, scalar(@$sizes) - 1);
 
     if ($presum) {
         push @answer, [EQUAL, 0, $presum, 0, $presum];
