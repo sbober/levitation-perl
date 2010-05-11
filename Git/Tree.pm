@@ -13,6 +13,14 @@ use warnings;
 use Carp;
 
 use List::Util qw(sum);
+use Faster;
+
+use constant {
+    EQUAL   => 0,
+    INSERT  => 1,
+    REPLACE => 2
+};
+
 
 sub new {
     my ($class) = @_;
@@ -84,8 +92,8 @@ sub get_diff {
     croak "more than one change" if $self->{changes} > 1;
     my $sizes = $self->{sizes};
     #croak "called with too small tree" if @$sizes < 2;
-    my ($idx, $action) = defined $self->{inspos} ? ($self->{inspos}, 'insert')
-                                                 : ($self->{reppos}, 'replace');
+    my ($idx, $action) = defined $self->{inspos} ? ($self->{inspos}, INSERT)
+                                                 : ($self->{reppos}, REPLACE);
     my @pre = $idx ? @$sizes[0..$idx-1] : ();
     my $it = $sizes->[$idx];
     my @post = $idx < @$sizes - 1 ? @$sizes[$idx+1..@$sizes-1] : ();
@@ -95,19 +103,19 @@ sub get_diff {
     my $postsum = int(sum(@post) // 0);
 
     if ($presum) {
-        push @answer, ['equal', 0, $presum, 0, $presum];
+        push @answer, [EQUAL, 0, $presum, 0, $presum];
     }
 
-    if ($action eq 'insert') {
+    if ($action == INSERT) {
         push @answer, [$action, $presum, $presum, $presum, $presum+$it];
         if ($postsum) {
-            push @answer, ['equal', $presum, $presum+$postsum, $presum+$it, $presum+$postsum+$it];
+            push @answer, [EQUAL, $presum, $presum+$postsum, $presum+$it, $presum+$postsum+$it];
         }
     }
-    elsif ($action eq 'replace') {
+    elsif ($action == REPLACE) {
         push @answer, [$action, $presum, $presum+$self->{oldlen}, $presum, $presum+$it];
         if ($postsum) {
-            push @answer, ['equal', $presum+$self->{oldlen}, $presum+$self->{oldlen}+$postsum, $presum+$it, $presum+$postsum+$it];
+            push @answer, [EQUAL, $presum+$self->{oldlen}, $presum+$self->{oldlen}+$postsum, $presum+$it, $presum+$postsum+$it];
         }
     }
     

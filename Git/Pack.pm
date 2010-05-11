@@ -6,6 +6,7 @@ use strict;
 use warnings;
 
 use Git::Delta;
+use Git::Tree;
 use Git::Common qw(repo);
 use Faster;
 use File::Temp qw(tempfile);
@@ -225,7 +226,7 @@ sub create_delta {
 
     foreach my $item (@$seq) {
         my ($opcode, $i1, $i2, $j1, $j2) = @$item;
-        if ($opcode eq 'equal') {
+        if ($opcode == Git::Tree::EQUAL) {
             my $scratch = '';
             my $op = 0x80;
             my $o = $i1;
@@ -245,7 +246,7 @@ sub create_delta {
             $out .= chr($op);
             $out .= $scratch;
         }
-        if ($opcode eq 'replace' || $opcode eq 'insert') {
+        if ($opcode == Git::Tree::REPLACE || $opcode == Git::Tree::INSERT) {
             my $s = $j2 - $j1;
             my $o = $j1;
             while ($s > 127) {
