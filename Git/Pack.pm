@@ -5,7 +5,6 @@ use feature ':5.10';
 use strict;
 use warnings;
 
-use Git::Delta;
 use Git::Tree;
 use Git::Common qw(repo);
 use Faster;
