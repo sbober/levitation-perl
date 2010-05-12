@@ -326,9 +326,32 @@ SV* sha1(SV* data) {
     git_SHA1_Update(&c, real, size);
     git_SHA1_Final(digest, &c);
 
-    return newSVpv(digest, 20);
+    return newSVpvn(digest, 20);
 }
 
+SV* calc_hash(SV* type, SV* content) {
+    unsigned char* type_str;
+    unsigned char* content_str;
+    STRLEN type_len;
+    STRLEN content_len;
+    unsigned char digest[20];
+    int len = 0;
+    git_SHA_CTX c;
+
+    unsigned char hdr[64];
+
+    type_str = SvPV(type, type_len);
+    content_str = SvPV(content, content_len); 
+
+    len = snprintf(hdr, sizeof(hdr), "%s %d\0", type_str, content_len);
+
+    git_SHA1_Init(&c);
+    git_SHA1_Update(&c, hdr, len+1);
+    git_SHA1_Update(&c, content_str, content_len);
+    git_SHA1_Final(digest, &c);
+
+    return newSVpvn(digest, 20);
+}
 
 SV* encode_size(unsigned long size) {
     unsigned char c;

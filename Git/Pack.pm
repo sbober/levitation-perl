@@ -98,7 +98,7 @@ sub _write_delta {
 sub maybe_write {
     my ($self, $type, $content) = @_;
 
-    my $hash = calc_hash($type, $content);
+    my $hash = Faster::calc_hash($type, $content);
 
     if (!exists $self->{objcache}->{$hash}) {
         $self->_write($hash, $type, $content);
@@ -110,7 +110,7 @@ sub maybe_write {
 sub delta_write {
     my ($self, $type, $content, $delta, $prev_ofs ) = @_;
 
-    my $hash = calc_hash($type, $content);
+    my $hash = Faster::calc_hash($type, $content);
 
     if (!exists $self->{objcache}->{$hash}) {
         $self->_write_delta($hash, $delta, $prev_ofs);
