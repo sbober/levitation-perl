@@ -13,6 +13,7 @@ use Carp::Assert;
 use IPC::Cmd qw(run);
 use Carp;
 use Digest::SHA1;
+use Compress::Raw::Zlib;
 use bytes ();
 
 my %_typemap = (
@@ -65,72 +66,57 @@ sub _open {
 }
 
 sub _raw_write {
-    my ($self, $hdr, $data, $prev_ofs) = @_;
+    my ($self, $hash, $out, $data, $prev_ofs) = @_;
 
     my $f = $self->{file};
 
     my $ofs = sysseek($f, 0, 1); # emulate systell
-    syswrite($f, $hdr);
-    $self->{outbytes} += bytes::length($hdr);
 
     if ($prev_ofs) {
-        my $diff = $ofs - $prev_ofs;
-        my $ofs_hdr = _encode_ofs($diff);
-        syswrite($f, $ofs_hdr);
-        $self->{outbytes} += bytes::length($ofs_hdr);
+        $out .= _encode_ofs($ofs - $prev_ofs);
     }
-    syswrite($f, $data);
-    $self->{outbytes} += bytes::length($data);
+    $out .= $data;
+    $self->{outbytes} += syswrite($f, $out);
     $self->{count}++;
-    return $ofs;
+
+    $self->{objcache}->{$hash} = [$ofs, crc32($out)];
 }
 
 sub _write {
-    my ($self, $hash, $type, $content, $prev_ofs) = @_;
-    my $ofs = $self->_raw_write( _encode_packobj($type, $content) );
-    return ($hash, $ofs);
+    my ($self, $hash, $type, $content) = @_;
+    $self->_raw_write($hash, _encode_packobj($type, $content) );
 }
 
 sub _write_delta {
-    my ($self, $delta, $prev_ofs) = @_;
+    my ($self, $hash, $delta, $prev_ofs) = @_;
 
     my ($hdr, $data) = _encode_packobj('ofs-delta', $delta);
 
-    my $ofs = $self->_raw_write($hdr, $data, $prev_ofs);
-    return $ofs;
-}
-
-sub write {
-    my ($self, $type, $content) = @_;
-    return $self->_write( calc_hash($type, $content), $type, $content);
+    $self->_raw_write($hash, $hdr, $data, $prev_ofs);
 }
 
 sub maybe_write {
-    my ($self, $type, $content, $prev_ofs) = @_;
+    my ($self, $type, $content) = @_;
+
     my $hash = calc_hash($type, $content);
-    my $ofs;
+
     if (!exists $self->{objcache}->{$hash}) {
-        (undef, $ofs) = $self->_write($hash, $type, $content, $prev_ofs);
-        $self->{objcache}->{$hash} = $ofs;
+        $self->_write($hash, $type, $content);
     }
-    else {
-        $ofs = $self->{objcache}->{$hash};
-    }
-    return ($hash, $ofs);
+
+    return ($hash, $self->{objcache}->{$hash}->[0]);
 }
 
 sub delta_write {
     my ($self, $type, $content, $delta, $prev_ofs ) = @_;
+
     my $hash = calc_hash($type, $content);
-    my $ofs;
+
     if (!exists $self->{objcache}->{$hash}) {
-        $ofs = $self->_write_delta($delta, $prev_ofs);
-        $self->{objcache}->{$hash} = $ofs;
+        $self->_write_delta($hash, $delta, $prev_ofs);
     }
-    else {
-        $ofs = $self->{objcache}->{$hash};
-    }
-    return ($hash, $ofs);
+
+    return ($hash, $self->{objcache}->{$hash}->[0]);
 }
 
 
@@ -300,7 +286,6 @@ sub _encode_packobj {
 sub deflate {
     my ($t) = @_;
     my ($out1, $out2);
-    use Compress::Raw::Zlib;
     my $err;
     state $x = Compress::Raw::Zlib::_deflateInit(
         0,
