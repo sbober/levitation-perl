@@ -3,7 +3,8 @@ package Faster;
 use Inline (
     C => 'DATA',
     CCFLAGS => '-O0',
-    CC => 'gcc-4.3'
+    CC => 'gcc-4.3',
+    LIBS => '-lz'
 );
 1;
 
@@ -19,6 +20,8 @@ __C__
 
 /* this is only to get definitions for memcpy(), ntohl() and htonl() */
 #include <string.h>
+
+#include <zlib.h>
 
 /*
  * SHA1 routine optimized to do word accesses rather than byte accesses,
@@ -455,3 +458,25 @@ unsigned long array_sum( AV* array, int start, int end) {
     return sum;
 }
 
+
+SV* deflate2( SV* in ) {
+    void *out;
+    z_stream s;
+    STRLEN in_len;
+    unsigned char* real;
+
+    real = SvPV(in, in_len);
+    memset(&s, 0, sizeof(s));
+
+    deflateInit(&s, Z_DEFAULT_COMPRESSION);
+    s.next_in = (void *)real;
+    s.avail_in = in_len;
+    s.avail_out = deflateBound(&s, s.avail_in);
+    Newx(out, s.avail_out, char);
+    s.next_out = out;
+    while (deflate(&s, Z_FINISH) == Z_OK)
+        /* Nothing */;
+    deflateEnd(&s);
+
+    return newSVpvn(out, s.total_out);
+}

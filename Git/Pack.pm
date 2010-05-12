@@ -337,33 +337,8 @@ sub _encode_packobj {
         $szbits = $sz & 0x7f;
         $sz >>= 7;
     }
-    my $z = deflate($content);
+    my $z = Faster::deflate2($content);
     return ($szout, $z);
 }
 
-sub deflate {
-    my ($t) = @_;
-    my ($out1, $out2);
-    my $err;
-    state $x = Compress::Raw::Zlib::_deflateInit(
-        0,
-        Z_DEFAULT_COMPRESSION(),
-        Z_DEFLATED(),
-        MAX_WBITS(),
-        MAX_MEM_LEVEL(),
-        Z_DEFAULT_STRATEGY(),
-        4096, ""
-    );
-
-    $err = $x->deflate($t, $out1);
-    $err == Z_OK or die "cannot deflate object";
-    
-    $err = $x->flush($out2);
-    $err == Z_OK or die "cannot finish object";
-
-    $err = $x->deflateReset();
-    $err == Z_OK or die "cannot reset object";
-
-    return $out1 . $out2;
-}
 1;
