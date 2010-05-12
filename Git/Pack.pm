@@ -126,7 +126,11 @@ sub _end {
     my $f = $self->{file};
     return if !defined $f;
     $self->{file} = undef;
-    $self->{objcache} = {};
+#    my $psum = Digest::SHA1->new;
+#    $psum->add($_) for sort(keys %{$self->{objcache}} );
+#
+#    my $pack_id = $psum->hexdigest;
+
 
     sysseek($f, 8, 0);
     my $cp = pack 'N', $self->{count};
@@ -141,20 +145,15 @@ sub _end {
         last if not $s;
         $sum->add($b);
     }
-    syswrite($f, $sum->digest);
+    my $pack_sum = $sum->digest;
+    syswrite($f, $pack_sum);
 
     close($f);
 
-#    my @res = run(command => ['git', 'index-pack', '-v', '--index-version=2',
-#                              "$self->{filename}.pack"]);
-#    croak "error executing git index-pack: $res[1] | " . join('', @{$res[4]}) if !$res[0];
-#    croak "git index-pack produced no output2" if !@{$res[3]};
-
-#    my $out = join('', @{$res[3]});
-    my $res = `git index-pack -v --index-version=2 $self->{filename}.pack`;
+    my $res = $self->_write_idx($pack_sum);
     chomp $res;
-    croak "git index-pack produced no output2" if !$res;
     print STDERR "PACKOUT: $res\n";
+    $self->{objcache} = {};
 
     my $nameprefix = Git::Common::repo("objects/pack/pack-$res");
     unlink "$self->{filename}.map" if -e "$self->{filename}.map";
@@ -162,6 +161,61 @@ sub _end {
     rename( "$self->{filename}.idx", "${nameprefix}.idx" );
 
     return $res;
+}
+
+sub _write_idx {
+    my ($self, $pack_sum) = @_;
+    my @sorted = sort keys %{ $self->{objcache} };
+    my $pack_id = unpack 'H*', Faster::sha1( join '', @sorted );
+
+    use Fcntl;
+
+    sysopen my $fh, "$self->{filename}.idx", O_WRONLY|O_CREAT|O_TRUNC
+        or die "cannot create .idx-file";
+    binmode($fh);
+
+    my $sum = Digest::SHA1->new;
+
+    my $hdr = "\377tOc" . pack('L>', 2);
+    $sum->add($hdr);
+    syswrite($fh, $hdr);
+
+    my %fanout;
+    for my $hash (@sorted) {
+        $fanout{ord(substr($hash, 0, 1))}++;
+    }
+    my $fout = join '', map {
+        $fanout{$_+1} += $fanout{$_};
+        pack('L>', $fanout{$_});
+    } (0..255);
+
+    $sum->add($fout);
+    syswrite($fh, $fout);
+
+    for my $hash (@sorted) {
+        $sum->add($hash);
+        syswrite($fh, $hash);
+    }
+
+    for my $hash (@sorted) {
+        my $c = pack('L>', $self->{objcache}->{$hash}->[1] );
+
+        $sum->add($c);
+        syswrite($fh, $c);
+    }
+    for my $hash (@sorted) {
+        my $ofs = pack('L>', $self->{objcache}->{$hash}->[0] );
+
+        $sum->add($ofs);
+        syswrite($fh, $ofs);
+    }
+
+    $sum->add($pack_sum);
+    syswrite($fh, $pack_sum);
+    syswrite($fh, $sum->digest);
+
+    close($fh);
+    return $pack_id;
 }
 
 sub close {
