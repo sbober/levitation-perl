@@ -126,11 +126,6 @@ sub _end {
     my $f = $self->{file};
     return if !defined $f;
     $self->{file} = undef;
-#    my $psum = Digest::SHA1->new;
-#    $psum->add($_) for sort(keys %{$self->{objcache}} );
-#
-#    my $pack_id = $psum->hexdigest;
-
 
     sysseek($f, 8, 0);
     my $cp = pack 'N', $self->{count};
@@ -165,6 +160,8 @@ sub _end {
 
 sub _write_idx {
     my ($self, $pack_sum) = @_;
+
+    # create the pack id
     my @sorted = sort keys %{ $self->{objcache} };
     my $pack_id = unpack 'H*', Faster::sha1( join '', @sorted );
 
@@ -176,10 +173,12 @@ sub _write_idx {
 
     my $sum = Digest::SHA1->new;
 
+    # write pack v2 header
     my $hdr = "\377tOc" . pack('L>', 2);
     $sum->add($hdr);
     syswrite($fh, $hdr);
 
+    # create and write fanout table
     my %fanout;
     for my $hash (@sorted) {
         $fanout{ord(substr($hash, 0, 1))}++;
@@ -192,17 +191,21 @@ sub _write_idx {
     $sum->add($fout);
     syswrite($fh, $fout);
 
+    # write SHA1s
     for my $hash (@sorted) {
         $sum->add($hash);
         syswrite($fh, $hash);
     }
 
+    # write CRC32s
     for my $hash (@sorted) {
         my $c = pack('L>', $self->{objcache}->{$hash}->[1] );
 
         $sum->add($c);
         syswrite($fh, $c);
     }
+
+    # write offsets
     for my $hash (@sorted) {
         my $ofs = pack('L>', $self->{objcache}->{$hash}->[0] );
 
@@ -210,6 +213,7 @@ sub _write_idx {
         syswrite($fh, $ofs);
     }
 
+    # write footer
     $sum->add($pack_sum);
     syswrite($fh, $pack_sum);
     syswrite($fh, $sum->digest);
