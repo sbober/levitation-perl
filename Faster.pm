@@ -480,3 +480,30 @@ SV* deflate2( SV* in ) {
 
     return newSVpvn(out, s.total_out);
 }
+
+
+void encode_packobj(int type, SV* content) {
+    unsigned char* real;
+    STRLEN clen;
+    int n = 0;
+    unsigned char hdr[10];
+    unsigned char c;
+
+    clen = SvCUR(content);
+
+    c = (type << 4) | (clen & 15);
+    clen >>= 4;
+
+    while (clen) {
+        hdr[n++] = c | 0x80;
+        c = clen & 0x7f;
+        clen >>= 7;
+    }
+    hdr[n] = c;
+
+    Inline_Stack_Vars;
+    Inline_Stack_Reset;
+    Inline_Stack_Push(sv_2mortal(newSVpvn(hdr, n+1)));
+    Inline_Stack_Push(sv_2mortal(deflate2(content)));
+    Inline_Stack_Done;
+}

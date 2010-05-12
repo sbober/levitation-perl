@@ -84,13 +84,13 @@ sub _raw_write {
 
 sub _write {
     my ($self, $hash, $type, $content) = @_;
-    $self->_raw_write($hash, _encode_packobj($type, $content) );
+    $self->_raw_write($hash, Faster::encode_packobj($_typemap{$type}, $content) );
 }
 
 sub _write_delta {
     my ($self, $hash, $delta, $prev_ofs) = @_;
 
-    my ($hdr, $data) = _encode_packobj('ofs-delta', $delta);
+    my ($hdr, $data) = Faster::encode_packobj($_typemap{'ofs-delta'}, $delta);
 
     $self->_raw_write($hash, $hdr, $data, $prev_ofs);
 }
@@ -320,25 +320,5 @@ sub _encode_ofs {
     return $out;
 }
 
-sub _encode_packobj {
-    my ($type, $content) = @_;
-
-    my $szout = '';
-    my $sz = bytes::length($content);
-    my $szbits = ($sz & 0x0f) | ($_typemap{$type} << 4);
-    $sz >>= 4;
-    
-    while (1) {
-        $szbits |= 0x80 if $sz;
-        $szout .= chr($szbits);
-
-        last if not $sz;
-
-        $szbits = $sz & 0x7f;
-        $sz >>= 7;
-    }
-    my $z = Faster::deflate2($content);
-    return ($szout, $z);
-}
 
 1;
