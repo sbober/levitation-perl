@@ -507,3 +507,16 @@ void encode_packobj(int type, SV* content) {
     Inline_Stack_Push(sv_2mortal(deflate2(content)));
     Inline_Stack_Done;
 }
+
+
+SV* encode_ofs (unsigned long ofs) {
+    unsigned char hdr[10];
+    int pos = sizeof(hdr) - 1;
+
+    hdr[pos] = ofs & 127;
+    while (ofs >>= 7)
+        hdr[--pos] = 128 | (--ofs & 127);
+
+    return newSVpvn(hdr + pos, sizeof(hdr) - pos);
+}
+

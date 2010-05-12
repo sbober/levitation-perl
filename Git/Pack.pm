@@ -73,7 +73,7 @@ sub _raw_write {
     my $ofs = sysseek($f, 0, 1); # emulate systell
 
     if ($prev_ofs) {
-        $out .= _encode_ofs($ofs - $prev_ofs);
+        $out .= Faster::encode_ofs($ofs - $prev_ofs);
     }
     $out .= $data;
     $self->{outbytes} += syswrite($f, $out);
@@ -306,19 +306,5 @@ sub create_delta {
     return $out;
 
 }
-
-sub _encode_ofs {
-    my ($ofs) = @_;
-
-    my @a;
-    my $pos = 0;
-    $a[$pos] = $ofs & 127;
-    while ($ofs >>= 7) { 
-        $a[++$pos] = 128 | (--$ofs & 127)
-    }
-    my $out = join '', reverse( map { chr($_) } @a );
-    return $out;
-}
-
 
 1;
