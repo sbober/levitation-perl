@@ -61,14 +61,14 @@ while (my $line = <>) {
     my $file = pop @path;
 
     my $twig = get_tree($tree, @path);
-    $twig->{_tree}->add(['100644', $file, pack('H*',$rev->[1]) ]  );
+    $twig->{_tree}->add2(['100644', $file, pack('H*',$rev->[1]) ]  );
     
     my $sha1;
     while(@path) {
         $sha1 = write_tree($twig, \@path);
         my $dir = pop @path;
         $twig = get_tree($tree, @path);
-        $twig->{_tree}->add(['40000', $dir, $sha1]);
+        $twig->{_tree}->add2(['40000', $dir, $sha1]);
     }
     $sha1 = write_tree($twig, \@path);
 

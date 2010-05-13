@@ -27,6 +27,7 @@ sub new {
     my $self = {
         array => [],
         indices => [],
+        indices2 => {},
         sizes => [],
         latest => undef,
         inspos => undef,
@@ -78,6 +79,51 @@ sub add {
     splice(@$sizes, $lo, 0, $ilen);
     $self->{inspos} = $lo;
     $self->{changes}++;
+}
+
+sub add2 {
+    my ($self, $elem) = @_;
+
+    my $index = $self->{indices2};
+    my $list = $self->{array};
+    my $sizes = $self->{sizes};
+
+    #die "noooo..." if @$list != @$index;
+
+    my $part = $elem->[1];
+    $part .= '/' if $elem->[0] eq '40000';
+    my $itext = "$elem->[0] $elem->[1]\0$elem->[2]";
+    my $ilen = bytes::length($itext);
+
+    if (exists $index->{$part}) {
+        my $ind = $index->{$part};
+        $self->{oldlen} = $sizes->[$ind];
+        $list->[$ind] = $itext;
+        $sizes->[$ind] = $ilen;
+        $self->{reppos} = $ind;
+        $self->{changes}++;
+    }
+    else {
+        my @names = sort keys %$index;
+        # use binary chop to find insert position
+        my ($lo, $hi) = (0, $#names);
+        while ($hi >= $lo) {
+            my $mid     = int(($lo + $hi) / 2);
+            my $mid_val = $names[$mid];
+            my $cmp     = $part cmp $mid_val;
+            $lo = $mid + 1 if $cmp > 0;
+            $hi = $mid - 1 if $cmp < 0;
+        }
+        splice(@$list, $lo, 0, $itext);
+        for my $v (values %$index) { # remember: 'values' returns aliased values
+            $v++ if $v >= $lo;
+        }
+        $index->{$part} = $lo;
+        splice(@$sizes, $lo, 0, $ilen);
+        $self->{inspos} = $lo;
+        $self->{changes}++;
+        
+    }
 }
 
 sub get_object {
