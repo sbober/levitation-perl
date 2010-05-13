@@ -14,6 +14,9 @@ use IPC::Cmd qw(run);
 use Carp;
 use Digest::SHA1;
 use Compress::Raw::Zlib;
+use TokyoCabinet;
+use JSON::XS;
+
 use bytes ();
 
 my %_typemap = (
@@ -40,14 +43,21 @@ sub new {
         outbytes => 0,
         filename => undef,
         file => undef,
-        objcache => {}
     };
-
     my $out = bless $self, $class;
-
+    $out->_mk_objcache;
     $out->_open;
 
     return $out;
+}
+
+sub _mk_objcache {
+    my ($self) = @_;
+
+    my $db = TokyoCabinet::ADB->new();
+    $db->open('+');
+    $self->{objcache} = $db;
+    $self->{objdirect} = $db->[0];
 }
 
 sub _open {
@@ -70,7 +80,7 @@ sub _raw_write {
 
     my $f = $self->{file};
 
-    my $ofs = sysseek($f, 0, 1); # emulate systell
+    my $ofs = $self->{lastofs} = sysseek($f, 0, 1); # emulate systell
 
     if ($prev_ofs) {
         $out .= Faster::encode_ofs($ofs - $prev_ofs);
@@ -79,7 +89,7 @@ sub _raw_write {
     $self->{outbytes} += syswrite($f, $out);
     $self->{count}++;
 
-    $self->{objcache}->{$hash} = [$ofs, crc32($out)];
+    TokyoCabinet::adb_put($self->{objdirect}, $hash, encode_json([$ofs, crc32($out)]));
 }
 
 sub _write {
@@ -99,12 +109,17 @@ sub maybe_write {
     my ($self, $type, $content) = @_;
 
     my $hash = Faster::calc_hash($type, $content);
-
-    if (!exists $self->{objcache}->{$hash}) {
+    
+    my $elem = TokyoCabinet::adb_get($self->{objcache}, $hash);
+    if (!$elem) {
         $self->_write($hash, $type, $content);
     }
+    else {
+        $elem = decode_json($elem);
+        $self->{lastofs} = $elem->[0];
+    }
 
-    return ($hash, $self->{objcache}->{$hash}->[0]);
+    return ($hash, $self->{lastofs});
 }
 
 sub delta_write {
@@ -112,11 +127,16 @@ sub delta_write {
 
     my $hash = Faster::calc_hash($type, $content);
 
-    if (!exists $self->{objcache}->{$hash}) {
+    my $elem = TokyoCabinet::adb_get($self->{objcache}, $hash);
+    if (!$elem) {
         $self->_write_delta($hash, $delta, $prev_ofs);
     }
+    else {
+        $elem = decode_json($elem);
+        $self->{lastofs} = $elem->[0];
+    }
 
-    return ($hash, $self->{objcache}->{$hash}->[0]);
+    return ($hash, $self->{lastofs});
 }
 
 
@@ -148,7 +168,8 @@ sub _end {
     my $res = $self->_write_idx($pack_sum);
     chomp $res;
     print STDERR "PACKOUT: $res\n";
-    $self->{objcache} = {};
+    $self->{objdirect} = undef
+    $self->{objcache}->close();
 
     my $nameprefix = Git::Common::repo("objects/pack/pack-$res");
     unlink "$self->{filename}.map" if -e "$self->{filename}.map";
@@ -161,9 +182,17 @@ sub _end {
 sub _write_idx {
     my ($self, $pack_sum) = @_;
 
-    # create the pack id
-    my @sorted = sort keys %{ $self->{objcache} };
-    my $pack_id = unpack 'H*', Faster::sha1( join '', @sorted );
+    # create the pack id and populate fanout
+    my $psum = Digest::SHA1->new;
+    my %fanout;
+    my $db = $self->{objdirect};
+    TokyoCabinet::adb_iterinit($db);
+    while (defined(my $k = TokyoCabinet::adb_iternext($db))) {
+        $psum->add($k);
+        $fanout{ord(substr($k, 0, 1))}++;
+
+    };
+    my $pack_id = unpack 'H*', $psum->digest;
 
     use Fcntl;
 
@@ -178,11 +207,7 @@ sub _write_idx {
     $sum->add($hdr);
     syswrite($fh, $hdr);
 
-    # create and write fanout table
-    my %fanout;
-    for my $hash (@sorted) {
-        $fanout{ord(substr($hash, 0, 1))}++;
-    }
+    # generate fanout and write
     my $fout = join '', map {
         $fanout{$_+1} += $fanout{$_};
         pack('L>', $fanout{$_});
@@ -191,26 +216,66 @@ sub _write_idx {
     $sum->add($fout);
     syswrite($fh, $fout);
 
+    my $out = '';
+    my $count = 0;
     # write SHA1s
-    for my $hash (@sorted) {
-        $sum->add($hash);
-        syswrite($fh, $hash);
+    TokyoCabinet::adb_iterinit($db);
+    while (defined(my $k = TokyoCabinet::adb_iternext($db))) {
+        $sum->add($k);
+        $out .= $k;
+        $count++;
+        if ($count >= 1048576) {
+            syswrite($fh, $out);
+            $count = 0;
+            $out = '';
+        }
+    }
+    if ($count) {
+        syswrite($fh, $out);
+        $count = 0;
+        $out = '';
     }
 
     # write CRC32s
-    for my $hash (@sorted) {
-        my $c = pack('L>', $self->{objcache}->{$hash}->[1] );
-
+    TokyoCabinet::adb_iterinit($db);
+    while (defined(my $k = TokyoCabinet::adb_iternext($db))) {
+        my $v = decode_json( TokyoCabinet::adb_get($db, $k));
+        my $c = pack('L>', $v->[1] );
         $sum->add($c);
-        syswrite($fh, $c);
+
+        $out .= $c;
+        $count++;
+        if ($count >= 1048576) {
+            syswrite($fh, $out);
+            $count = 0;
+            $out = '';
+        }
+    }
+    if ($count) {
+        syswrite($fh, $out);
+        $count = 0;
+        $out = '';
     }
 
     # write offsets
-    for my $hash (@sorted) {
-        my $ofs = pack('L>', $self->{objcache}->{$hash}->[0] );
-
+    TokyoCabinet::adb_iterinit($db);
+    while (defined(my $k = TokyoCabinet::adb_iternext($db))) {
+        my $v = decode_json( TokyoCabinet::adb_get($db, $k));
+        my $ofs = pack('L>', $v->[0] );
         $sum->add($ofs);
-        syswrite($fh, $ofs);
+
+        $out .= $ofs;
+        $count++;
+        if ($count >= 1048576) {
+            syswrite($fh, $out);
+            $count = 0;
+            $out = '';
+        }
+    }
+    if ($count) {
+        syswrite($fh, $out);
+        $count = 0;
+        $out = '';
     }
 
     # write footer
@@ -232,6 +297,8 @@ sub breakpoint {
     my $id = $self->_end;
     $self->{outbytes} = 0;
     $self->{count} = 0;
+    $self->{lastofs} = undef;
+    $self->_mk_objcache;
 
     $self->_open;
 
