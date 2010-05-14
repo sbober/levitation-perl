@@ -81,6 +81,10 @@ while (my $line = <>) {
     if ($pack->{outbytes} >= $OPTS{pack_size}) {
         $pack->breakpoint;
         undef %may_delta;
+        open my $ref, '>', Git::Common::repo('refs/heads/master')
+            or die 'cannot open "master"';
+        print {$ref} $last_commit or die 'cannot write to "master"';
+        close($ref) or die 'cannot close "master"';
     };
 }
 
