@@ -110,7 +110,7 @@ sub maybe_write {
 
     my $hash = Faster::calc_hash($type, $content);
     
-    my $elem = TokyoCabinet::adb_get($self->{objcache}, $hash);
+    my $elem = TokyoCabinet::adb_get($self->{objdirect}, $hash);
     if (!$elem) {
         $self->_write($hash, $type, $content);
     }
@@ -127,7 +127,7 @@ sub delta_write {
 
     my $hash = Faster::calc_hash($type, $content);
 
-    my $elem = TokyoCabinet::adb_get($self->{objcache}, $hash);
+    my $elem = TokyoCabinet::adb_get($self->{objdirect}, $hash);
     if (!$elem) {
         $self->_write_delta($hash, $delta, $prev_ofs);
     }
@@ -168,7 +168,7 @@ sub _end {
     my $res = $self->_write_idx($pack_sum);
     chomp $res;
     print STDERR "PACKOUT: $res\n";
-    $self->{objdirect} = undef
+    $self->{objdirect} = undef;
     $self->{objcache}->close();
 
     my $nameprefix = Git::Common::repo("objects/pack/pack-$res");
@@ -186,6 +186,7 @@ sub _write_idx {
     my $psum = Digest::SHA1->new;
     my %fanout;
     my $db = $self->{objdirect};
+    say STDERR "db recs: ", TokyoCabinet::adb_rnum($db);
     TokyoCabinet::adb_iterinit($db);
     while (defined(my $k = TokyoCabinet::adb_iternext($db))) {
         $psum->add($k);
