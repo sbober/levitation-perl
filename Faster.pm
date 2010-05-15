@@ -487,6 +487,7 @@ SV* deflate2( SV* in ) {
     z_stream s;
     STRLEN in_len;
     unsigned char* real;
+    SV* ret;
 
     real = SvPV(in, in_len);
     memset(&s, 0, sizeof(s));
@@ -501,7 +502,10 @@ SV* deflate2( SV* in ) {
         /* Nothing */;
     deflateEnd(&s);
 
-    return newSVpvn(out, s.total_out);
+    ret = newSVpvn(out, s.total_out);
+    Safefree(out);
+
+    return ret;
 }
 
 
