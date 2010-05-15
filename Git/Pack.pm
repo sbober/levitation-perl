@@ -168,8 +168,9 @@ sub _end {
     my $res = $self->_write_idx($pack_sum);
     chomp $res;
     print STDERR "PACKOUT: $res\n";
-    $self->{objdirect} = undef;
-    $self->{objcache}->close();
+    #$self->{objdirect} = undef;
+    $self->{objcache}->vanish();
+    #$self->{objcache}->close();
 
     my $nameprefix = Git::Common::repo("objects/pack/pack-$res");
     unlink "$self->{filename}.map" if -e "$self->{filename}.map";
@@ -186,7 +187,10 @@ sub _write_idx {
     my $psum = Digest::SHA1->new;
     my %fanout;
     my $db = $self->{objdirect};
+
     say STDERR "db recs: ", TokyoCabinet::adb_rnum($db);
+    say STDERR "db size: ", TokyoCabinet::adb_size($db);
+
     TokyoCabinet::adb_iterinit($db);
     while (defined(my $k = TokyoCabinet::adb_iternext($db))) {
         $psum->add($k);
@@ -225,7 +229,7 @@ sub _write_idx {
         $sum->add($k);
         $out .= $k;
         $count++;
-        if ($count >= 1048576) {
+        if ($count >= 65536) {
             syswrite($fh, $out);
             $count = 0;
             $out = '';
@@ -246,7 +250,7 @@ sub _write_idx {
 
         $out .= $c;
         $count++;
-        if ($count >= 1048576) {
+        if ($count >= 65536) {
             syswrite($fh, $out);
             $count = 0;
             $out = '';
@@ -267,7 +271,7 @@ sub _write_idx {
 
         $out .= $ofs;
         $count++;
-        if ($count >= 1048576) {
+        if ($count >= 65536) {
             syswrite($fh, $out);
             $count = 0;
             $out = '';
@@ -299,7 +303,7 @@ sub breakpoint {
     $self->{outbytes} = 0;
     $self->{count} = 0;
     $self->{lastofs} = undef;
-    $self->_mk_objcache;
+#    $self->_mk_objcache;
 
     $self->_open;
 

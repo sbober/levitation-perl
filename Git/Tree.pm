@@ -14,7 +14,7 @@ use Carp;
 
 use List::Util qw(sum);
 use Faster;
-
+use TokyoCabinet;
 use constant {
     EQUAL   => 0,
     INSERT  => 1,
@@ -27,7 +27,6 @@ sub new {
     my $self = {
         array => [],
         indices => [],
-        indices2 => {},
         sizes => [],
         latest => undef,
         inspos => undef,
@@ -35,6 +34,11 @@ sub new {
         changes => undef,
         oldlen => undef,
     };
+    #my $t = TokyoCabinet::ADB->new;
+    #$t->open('+');
+    #$self->{indices2} = $t->[0];
+    #$self->{obj} = $t;
+
     bless $self, $class;
 }
 
@@ -95,8 +99,8 @@ sub add2 {
     my $itext = "$elem->[0] $elem->[1]\0$elem->[2]";
     my $ilen = bytes::length($itext);
 
-    if (exists $index->{$part}) {
-        my $ind = $index->{$part};
+    my $ind = TokyoCabinet::adb_get($index, $part);
+    if (defined $ind) {
         $self->{oldlen} = $sizes->[$ind];
         $list->[$ind] = $itext;
         $sizes->[$ind] = $ilen;
@@ -104,24 +108,40 @@ sub add2 {
         $self->{changes}++;
     }
     else {
-        my @names = sort keys %$index;
+        use Data::Dump qw(dump);
+        my $names = [];
+        my $i = length($part);
+        while (!@$names && $i >= 0) {
+            $names = TokyoCabinet::adb_fwmkeys($index, substr($part, 0, $i), -1);
+            $i--;
+        }
+#        say STDERR dump($names);
         # use binary chop to find insert position
-        my ($lo, $hi) = (0, $#names);
+        my ($lo, $hi) = (0, $#{$names});
         while ($hi >= $lo) {
             my $mid     = int(($lo + $hi) / 2);
-            my $mid_val = $names[$mid];
+            my $mid_val = $names->[$mid];
             my $cmp     = $part cmp $mid_val;
             $lo = $mid + 1 if $cmp > 0;
             $hi = $mid - 1 if $cmp < 0;
         }
+#        say STDERR $lo;
+        my $name = $names->[$lo];
+        $lo = defined $name  ?  TokyoCabinet::adb_get($index, $name) : 
+                      @$names ? TokyoCabinet::adb_get($index, $names->[-1]) + 1:
+                                0;
         splice(@$list, $lo, 0, $itext);
-        for my $v (values %$index) { # remember: 'values' returns aliased values
-            $v++ if $v >= $lo;
+        TokyoCabinet::adb_iterinit($index);
+        while (defined(my $key = TokyoCabinet::adb_iternext($index))) {
+            my $value = TokyoCabinet::adb_get($index, $key);
+            $value++ if $value >= $lo;
+            TokyoCabinet::adb_put($index, $key, $value);
         }
-        $index->{$part} = $lo;
+        TokyoCabinet::adb_put($index, $part, $lo);
         splice(@$sizes, $lo, 0, $ilen);
         $self->{inspos} = $lo;
         $self->{changes}++;
+        #say STDERR dump((tied %$index)->size());
         
     }
 }
