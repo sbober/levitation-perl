@@ -4,7 +4,8 @@ use Inline (
     C => 'DATA',
     CCFLAGS => '-O0',
     CC => 'gcc-4.3',
-    LIBS => '-lz'
+    LIBS => '-lz',
+    FORCE_BUILD => 1
 );
 1;
 
