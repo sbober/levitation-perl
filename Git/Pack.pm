@@ -14,8 +14,6 @@ use IPC::Cmd qw(run);
 use Carp;
 use Digest::SHA1;
 use Compress::Raw::Zlib;
-use TokyoCabinet;
-use JSON::XS;
 
 use bytes ();
 
@@ -54,10 +52,7 @@ sub new {
 sub _mk_objcache {
     my ($self) = @_;
 
-    my $db = TokyoCabinet::ADB->new();
-    $db->open('+');
-    $self->{objcache} = $db;
-    $self->{objdirect} = $db->[0];
+    $self->{objcache} = {};
 }
 
 sub _open {
@@ -89,7 +84,7 @@ sub _raw_write {
     $self->{outbytes} += syswrite($f, $out);
     $self->{count}++;
 
-    TokyoCabinet::adb_put($self->{objdirect}, $hash, encode_json([$ofs, crc32($out)]));
+    $self->{objcache}->{$hash} = "$ofs\0" . crc32($out);
 }
 
 sub _write {
@@ -110,12 +105,12 @@ sub maybe_write {
 
     my $hash = Faster::calc_hash($type, $content);
     
-    my $elem = TokyoCabinet::adb_get($self->{objdirect}, $hash);
+    my $elem = $self->{objcache}->{$hash};
     if (!$elem) {
         $self->_write($hash, $type, $content);
     }
     else {
-        $elem = decode_json($elem);
+        $elem = [split "\0", $elem];
         $self->{lastofs} = $elem->[0];
     }
 
@@ -127,12 +122,12 @@ sub delta_write {
 
     my $hash = Faster::calc_hash($type, $content);
 
-    my $elem = TokyoCabinet::adb_get($self->{objdirect}, $hash);
+    my $elem = $self->{objcache}->{$hash};
     if (!$elem) {
         $self->_write_delta($hash, $delta, $prev_ofs);
     }
     else {
-        $elem = decode_json($elem);
+        $elem = [split "\0", $elem];
         $self->{lastofs} = $elem->[0];
     }
 
@@ -169,7 +164,7 @@ sub _end {
     chomp $res;
     print STDERR "PACKOUT: $res\n";
     #$self->{objdirect} = undef;
-    $self->{objcache}->vanish();
+    $self->{objcache} = {};
     #$self->{objcache}->close();
 
     my $nameprefix = Git::Common::repo("objects/pack/pack-$res");
@@ -186,13 +181,11 @@ sub _write_idx {
     # create the pack id and populate fanout
     my $psum = Digest::SHA1->new;
     my %fanout;
-    my $db = $self->{objdirect};
+    my $db = $self->{objcache};
+    my @sorted = sort keys %$db;
 
-    say STDERR "db recs: ", TokyoCabinet::adb_rnum($db);
-    say STDERR "db size: ", TokyoCabinet::adb_size($db);
 
-    TokyoCabinet::adb_iterinit($db);
-    while (defined(my $k = TokyoCabinet::adb_iternext($db))) {
+    foreach my $k (@sorted) {
         $psum->add($k);
         $fanout{ord(substr($k, 0, 1))}++;
 
@@ -224,8 +217,7 @@ sub _write_idx {
     my $out = '';
     my $count = 0;
     # write SHA1s
-    TokyoCabinet::adb_iterinit($db);
-    while (defined(my $k = TokyoCabinet::adb_iternext($db))) {
+    foreach my $k (@sorted) {
         $sum->add($k);
         $out .= $k;
         $count++;
@@ -242,9 +234,8 @@ sub _write_idx {
     }
 
     # write CRC32s
-    TokyoCabinet::adb_iterinit($db);
-    while (defined(my $k = TokyoCabinet::adb_iternext($db))) {
-        my $v = decode_json( TokyoCabinet::adb_get($db, $k));
+    foreach my $k (@sorted) {
+        my $v = [split "\0", $db->{$k}];
         my $c = pack('L>', $v->[1] );
         $sum->add($c);
 
@@ -263,9 +254,8 @@ sub _write_idx {
     }
 
     # write offsets
-    TokyoCabinet::adb_iterinit($db);
-    while (defined(my $k = TokyoCabinet::adb_iternext($db))) {
-        my $v = decode_json( TokyoCabinet::adb_get($db, $k));
+    foreach my $k (@sorted) {
+        my $v = [split "\0", $db->{$k}];
         my $ofs = pack('L>', $v->[0] );
         $sum->add($ofs);
 

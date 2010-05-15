@@ -34,10 +34,10 @@ sub new {
         changes => undef,
         oldlen => undef,
     };
-    #my $t = TokyoCabinet::ADB->new;
-    #$t->open('+');
-    #$self->{indices2} = $t->[0];
-    #$self->{obj} = $t;
+    my $t = TokyoCabinet::ADB->new;
+    $t->open('+');
+    $self->{indices2} = $t->[0];
+    $self->{obj} = $t;
 
     bless $self, $class;
 }
