@@ -31,7 +31,6 @@ use Git::Tree;
 use Git::Pack;
 use Git::Common;
 
-
 binmode(STDOUT, ':utf8');
 binmode(STDERR, ':utf8');
 binmode(STDIN, ':utf8');
@@ -61,14 +60,14 @@ while (my $line = <>) {
     my $file = pop @path;
 
     my $twig = get_tree($tree, @path);
-    $twig->{_tree}->add2(['100644', $file, pack('H*',$rev->[1]) ]  );
+    $twig->{_tree}->add(['100644', $file, pack('H*',$rev->[1]) ]  );
     
     my $sha1;
     while(@path) {
         $sha1 = write_tree($twig, \@path);
         my $dir = pop @path;
         $twig = get_tree($tree, @path);
-        $twig->{_tree}->add2(['40000', $dir, $sha1]);
+        $twig->{_tree}->add(['40000', $dir, $sha1]);
     }
     $sha1 = write_tree($twig, \@path);
 
@@ -120,9 +119,8 @@ sub write_tree {
 
     my $path = join( '/', @$path_ref );
     if ($may_delta{$path} && $may_delta{$path} < $OPTS{delta_depth} && $twig->{_sha1} && $twig->{_ofs}) {
-        my $diff = $twig->{_tree}->get_diff;
-        my $obj = $twig->{_tree}->get_object;
-        my $delta = Faster::create_delta($twig->{_old}, $obj, $diff);
+        my $obj = $twig->{_tree}->{full};
+        my $delta = Faster::create_delta($twig->{_old}, $obj, $twig->{_tree}->{diff});
 
         my ($sha1, $ofs) = $pack->delta_write('tree', $obj, $delta, $twig->{_ofs});
 
@@ -134,15 +132,15 @@ sub write_tree {
         $may_delta{$path}++;
     }
     else {
-        my $obj = $twig->{_tree}->get_object;
+        my $obj = $twig->{_tree}->{full};
         my ($sha1, $ofs) = $pack->maybe_write('tree', $obj);
+
         $twig->{_sha1} = $sha1;
         $twig->{_ofs} = $ofs;
         $twig->{_old} = bytes::length($obj);
         $may_delta{$path} = 1;
     }
     my $sha1 = $twig->{_sha1};
-    $twig->{_tree}->reset;
     return $sha1;
 }
 
