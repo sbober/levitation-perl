@@ -57,7 +57,7 @@ while (my $line = <>) {
 
     my $rev = decode_json($line);
 
-    my @path = split qr{/}, Encode::encode_utf8($rev->[2]);
+    my @path = split qr '/', Encode::encode_utf8($rev->[2]);
     my $file = pop @path;
 
     my $twig = get_tree($tree, @path);
