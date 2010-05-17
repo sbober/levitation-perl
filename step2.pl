@@ -63,13 +63,13 @@ sub step2 {
         commit_times($rev);
 
         if ($commit_id % 100000 == 0) {
-            print {$gfi} "progress revision $commit_id ($rev->{wtime})\n";
+            print {$gfi} "progress revision $commit_id ($rev->{timestamp})\n";
         }
 
-        $rev->{msg} = sprintf "%s%s\n\n Levitation-perl of %d rev %d\n",
+        $rev->{msg} = sprintf "%s%s\n\n '%s' (rev %d)\n",
                     ($rev->{comment} // ''),
                     ((defined $rev->{minor} && $rev->{minor}) ? ' (minor)': ''),
-                    $rev->{page_id}, $rev->{id};
+                    $rev->{title}, $rev->{id};
 
         user($rev, $domain);
         path($rev);
