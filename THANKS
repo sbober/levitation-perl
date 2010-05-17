@@ -1,0 +1,17 @@
+Thanks to Tim 'Scytale' Weber ( http://scytale.name/ ) for the Levitation
+idea and Python prototype. He kicked off the plan to convert Wikipedia to
+an infrastructure around a DVCS.
+
+Thanks to the git community, git coders, git documenters etc.
+
+Thanks especially to Shawn Pearce for his excellent git-fast-import program
+around which Levitation is centered. The source was very inspirational for my
+own (stupid) version of it.
+
+Thanks to Tim Bunce, Adam Kaplan et al. for Devel::NYTProf. If you're coding
+Perl, want to have an efficient program and need a way to profile, this is the
+way you _must_ take. I wish every programming language had such a profiling
+tool.
+
+Thanks to the nice folks on the #levitation channel at FreeNode IRC.
+
