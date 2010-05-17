@@ -13,5 +13,8 @@ Perl, want to have an efficient program and need a way to profile, this is the
 way you _must_ take. I wish every programming language had such a profiling
 tool.
 
-Thanks to the nice folks on the #levitation channel at FreeNode IRC.
+Thanks to the nice folks (especially Matthias 'Hydrox' Söhnholz and BenBE)
+on the #levitation channel at FreeNode IRC for providing inspiration and
+testing feedback.
+
 
