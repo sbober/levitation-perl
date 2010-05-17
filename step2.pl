@@ -66,10 +66,10 @@ sub step2 {
             print {$gfi} "progress revision $commit_id ($rev->{timestamp})\n";
         }
 
-        $rev->{msg} = sprintf "%s%s\n\n '%s' (rev %d)\n",
+        $rev->{msg} = sprintf "%s%s\n\n '%s:%s' (rev %d)\n",
                     ($rev->{comment} // ''),
                     ((defined $rev->{minor} && $rev->{minor}) ? ' (minor)': ''),
-                    $rev->{title}, $rev->{id};
+                    $rev->{namespace}, $rev->{title}, $rev->{id};
 
         user($rev, $domain);
         path($rev);
