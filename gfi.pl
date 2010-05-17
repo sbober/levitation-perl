@@ -38,8 +38,9 @@ binmode(STDIN, ':utf8');
 STDOUT->autoflush(1);
 
 my %OPTS = (
-    pack_size => int(600 * 1024**2),
-    delta_depth => 50,
+    pack_size => int(1.8 * 1024**3),
+    delta_depth => 100,
+    max_objects => int(5 * 1024**2),
 );
 
 my $tree = {};
@@ -77,7 +78,7 @@ while (my $line = <>) {
 
     $last_commit = unpack('H*', $bin);
 
-    if ($pack->{outbytes} >= $OPTS{pack_size}) {
+    if ($pack->{count} >= $OPTS{max_objects} || $pack->{outbytes} >= $OPTS{pack_size}) {
         $pack->breakpoint;
         undef %may_delta;
         open my $ref, '>', Git::Common::repo('refs/heads/master')
