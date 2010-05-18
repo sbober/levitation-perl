@@ -1,0 +1,37 @@
+#!/bin/sh
+
+basedir=$(dirname $0)
+file=$1
+type=$( file -b --mime-type $file )
+
+case "$type" in
+    application/x-7z-compressed)
+        prog="7z x $file -so"
+        ;;
+    application/x-gzip)
+        prog="zcat $file"
+        ;;
+    application/x-bzip2)
+        prog="bzcat $file"
+        ;;
+    *)
+        prog="cat $file"
+        ;;
+esac
+
+git init
+
+echo == Step 1: Parsing XML, extracting and persisting information ==
+
+$prog | $basedir/step1.pl -m 0 1>&2
+
+echo == Sorting persistent information ==
+
+LC_ALL=C sort rev-table.txt > rev-sorted.txt
+
+echo == Step 2: writing git trees and commits ==
+
+$basedir/step2.pl | $basedir/gfi.pl 1>&2
+
+echo == Levitation is done! ==
+

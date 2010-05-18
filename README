@@ -55,6 +55,16 @@ Then, "levitate". This is a three-step process:
   /path/to/levitation-perl/step2.pl | /path/to/levitation-perl/gfi.pl
 
 
+Alternatively, you can just change to an empty directory and call the
+"levitate" helper script with a path to a dump as parameter (may be 
+7z, bz2, gz or xml):
+
+  mkdir /tmp/blawiki
+  cd /tmp/blawiki
+  /path/to/levitation-perl/levitate /path/to/blawiki-dump...
+
+Lots of progress information is printed to standard error, so it may be
+best to redirect that to a file.
 
 Have fun.
 
