@@ -48,9 +48,10 @@ First, initialize a git repository:
   git init
 
 
-Then, "levitate". This is a two-step process:
+Then, "levitate". This is a three-step process:
 
   cat /path/to/blawiki-dump.xml | /path/to/levitation-perl/step1.pl
+  LC_ALL=C sort rev-table.txt > rev-sorted.txt
   /path/to/levitation-perl/step2.pl | /path/to/levitation-perl/gfi.pl
 
 

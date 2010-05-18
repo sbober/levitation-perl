@@ -161,7 +161,7 @@ sub persist {
 
     my $DIR = opt('dir');
     my %DB;
-
+    open my $file, '>', "$DIR/rev-table.txt" or die "cannot open rev-table.txt";
 
     # partition the DB based on revision id and so that one DB slice
     # doesn't hold more than 4M records. DB 0 gets revs 1 - 3999999, DB 1
@@ -169,7 +169,7 @@ sub persist {
     my $count = 0;
     while (my $data = $queue->dequeue) {
 
-        my $dbnr = int($data->{revision_id} / 4000000);
+        my $dbnr = int($count / 8000000);
 
         # create the DB slice if it doesn't exist
         if (!exists $DB{"revs$dbnr"}) {
@@ -196,7 +196,10 @@ sub persist {
             defined($data->{minor})
         ]);
         $DB{"revs$dbnr"}->insert($data->{revision_id}, $rev);
-
+        say {$file} join( '|', 
+            $data->{timestamp}, sprintf('%012d', $data->{revision_id}), 
+            $dbnr, $data->{revision_id}
+        );
         $count++;
     }
 
@@ -205,7 +208,7 @@ sub persist {
         my $db = $DB{$k};
         $db->finish();
     }
-
+    close($file);
     return;
 }
 

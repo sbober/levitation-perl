@@ -82,20 +82,21 @@ sub step2 {
 }
 
 sub next_rev {
-    state $revid = -1;
-    state $DB;
+    state %DB;
     state $DIR = opt('dir');
     state $MAX = opt('revs');
-    while (defined $revid && (!$MAX || $revid <= $MAX)) {
-        $revid++;
+    state $file;
+    if (!$file) {
+        print "progress opening file\n";
+        open $file, '<', "$DIR/rev-sorted.txt" or die "cannot open rev-sorted.txt";
+    }
+    while (my $line = readline($file)) {
+        chomp $line;
+        my (undef, undef, $dbnr, $revid) = split '\|', $line;
+        my $db = $DB{$dbnr} ||= CDB_File->TIEHASH("$DIR/revs$dbnr.db")
+            or die "cannot open db $dbnr";
 
-        if ($revid % 4000000 == 0) {
-            my $dbnr = int($revid / 4000000);
-            #$DB->DESTROY() if defined $DB;
-            #undef $DB;
-            $DB = CDB_File->TIEHASH("$DIR/revs$dbnr.db") or last;
-        }
-        my $c = $DB->FETCH($revid);
+        my $c = $db->FETCH($revid);
         next if not defined $c;
 
         my %data = (id => $revid);
