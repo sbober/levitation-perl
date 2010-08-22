@@ -36,6 +36,11 @@ Under Debian / Ubuntu the following command should set you:
                        libinline-perl libjson-xs-perl \
                        libcompress-raw-zlib-perl libcarp-assert-perl
 
+For Fedora, the equivalent is
+  sudo yum install perl-Regexp-Common \
+                   perl-Inline perl-JSON-XS \
+                   perl-Compress-Raw-Zlib perl-Carp-Assert
+
 
 Usage
 -----
