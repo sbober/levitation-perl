@@ -42,6 +42,12 @@ For Fedora, the equivalent is
                    perl-Compress-Raw-Zlib perl-Carp-Assert
 
 
+For the second set, you may be able to just run:
+  sudo cpan -i CDB_File
+  sudo cpan -i XML::Bare
+  sudo cpan -i Deep::Hash::Utils
+
+
 Usage
 -----
 
