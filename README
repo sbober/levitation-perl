@@ -18,6 +18,9 @@ Although gcc 4.3 was specified by old versions of levitation-perl
 (circa May 2010), gcc 4.5.2 also appears to work (at least for some
 small wiki dumps).
 
+You need zlib, for example the following should work under Debian/Ubuntu:
+  sudo apt-get install zlib1g-dev
+
 You need the following modules and their dependencies from CPAN:
 
 - Regexp::Common
