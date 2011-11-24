@@ -7,8 +7,7 @@ The first 1000 pages of the german Wikipedia and all their revisions
 hardware.
 
 
-Dependencies
-------------
+INSTALL:
 
 You need at least Perl 5.10. The Perl interpreter has to be compiled
 with threads support.
@@ -28,17 +27,20 @@ You need the following modules and their dependencies from CPAN:
 - JSON::XS
 - Compress::Raw::Zlib
 - Carp::Assert
+- Devel::Size
 
 - CDB_File
 - XML::Bare      >= 0.44
 - Deep::Hash::Utils
+- File::Path     > 2.04 ? (2.08 is fine; it has to export make_path)
 
 Some Linux distributions will already have the first set.
 Under Debian / Ubuntu the following command should set you:
 
   sudo apt-get install libregexp-common-perl \
                        libinline-perl libjson-xs-perl \
-                       libcompress-raw-zlib-perl libcarp-assert-perl
+                       libcompress-raw-zlib-perl libcarp-assert-perl \
+                       libdevel-size-perl
 
 For Fedora, the equivalent is
   sudo yum install perl-Regexp-Common \
@@ -52,8 +54,7 @@ For the second set, you may be able to just run:
   sudo cpan -i Deep::Hash::Utils
 
 
-Usage
------
+USAGE:
 
 First, initialize a git repository:
 
@@ -62,6 +63,7 @@ First, initialize a git repository:
   cd blawiki
   git init
 
+(Alternately, go to the working directory of an existing git repository where you want to import the dump, such as one from a previous run of levitation-perl).
 
 Then, "levitate". This is a three-step process:
 

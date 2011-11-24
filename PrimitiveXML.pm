@@ -30,7 +30,11 @@ sub new {
     }
 
     my $infotxt = do {local $/ = "</siteinfo>\n"; <$in>;};
-    my $info = XML::Bare->new(text => $infotxt)->parse()->{mediawiki}->{siteinfo};
+    defined $infotxt
+      or die "could not read infotxt from input $input";
+    my $parser= XML::Bare->new(text => $infotxt)
+      or die "could not create parser from text '$infotxt'";
+    my $info = $parser->parse()->{mediawiki}->{siteinfo};
 
     my %self = (
         page        => {},
