@@ -7,15 +7,18 @@ The first 1000 pages of the german Wikipedia and all their revisions
 hardware.
 
 
-Dependencies
-------------
+INSTALL:
 
 You need at least Perl 5.10. The Perl interpreter has to be compiled
 with threads support.
 
 You also need a working C compiler for the inline SHA1 C function.
-Currently this _must_ be gcc 4.3 callable as 'gcc-4.3'. This will be
-fixed soon.
+Although gcc 4.3 was specified by old versions of levitation-perl
+(circa May 2010), gcc 4.5.2 also appears to work (at least for some
+small wiki dumps).
+
+You need zlib, for example the following should work under Debian/Ubuntu:
+  sudo apt-get install zlib1g-dev
 
 You need the following modules and their dependencies from CPAN:
 
@@ -24,21 +27,34 @@ You need the following modules and their dependencies from CPAN:
 - JSON::XS
 - Compress::Raw::Zlib
 - Carp::Assert
+- Devel::Size
 
 - CDB_File
 - XML::Bare      >= 0.44
 - Deep::Hash::Utils
+- File::Path     > 2.04 ? (2.08 is fine; it has to export make_path)
 
 Some Linux distributions will already have the first set.
 Under Debian / Ubuntu the following command should set you:
 
   sudo apt-get install libregexp-common-perl \
                        libinline-perl libjson-xs-perl \
-                       libcompress-raw-zlib-perl libcarp-assert-perl
+                       libcompress-raw-zlib-perl libcarp-assert-perl \
+                       libdevel-size-perl
+
+For Fedora, the equivalent is
+  sudo yum install perl-Regexp-Common \
+                   perl-Inline perl-JSON-XS \
+                   perl-Compress-Raw-Zlib perl-Carp-Assert
 
 
-Usage
------
+For the second set, you may be able to just run:
+  sudo cpan -i CDB_File
+  sudo cpan -i XML::Bare
+  sudo cpan -i Deep::Hash::Utils
+
+
+USAGE:
 
 First, initialize a git repository:
 
@@ -47,6 +63,7 @@ First, initialize a git repository:
   cd blawiki
   git init
 
+(Alternately, go to the working directory of an existing git repository where you want to import the dump, such as one from a previous run of levitation-perl).
 
 Then, "levitate". This is a three-step process:
 

@@ -3,7 +3,6 @@ package Faster;
 use Inline (
     C => 'DATA',
     CCFLAGS => '-O0',
-    CC => 'gcc-4.3',
     LIBS => '-lz',
     FORCE_BUILD => 1
 );
